@@ -82,11 +82,13 @@ class Program
 
         try
         {
-            // Initialize Repository object pointing to current directory
-            var currentDir = Directory.GetCurrentDirectory();
-            LogInfo($"  Testing repository at: {currentDir}");
+            // Use parent directory which is the git repository root
+            // (current directory is the GitCompatibilityTest project directory)
+            var repoDir = Directory.GetParent(Directory.GetCurrentDirectory())?.FullName
+                ?? Directory.GetCurrentDirectory();
+            LogInfo($"  Testing repository at: {repoDir}");
 
-            using var repo = new Repository(currentDir);
+            using var repo = new Repository(repoDir);
 
             LogSuccess("Repository object created successfully");
             LogInfo($"  Repository is bare: {repo.Info.IsBare}");
@@ -111,8 +113,10 @@ class Program
 
         try
         {
-            var currentDir = Directory.GetCurrentDirectory();
-            using var repo = new Repository(currentDir);
+            // Use parent directory which is the git repository root
+            var repoDir = Directory.GetParent(Directory.GetCurrentDirectory())?.FullName
+                ?? Directory.GetCurrentDirectory();
+            using var repo = new Repository(repoDir);
 
             // Test status retrieval
             var status = repo.RetrieveStatus();
