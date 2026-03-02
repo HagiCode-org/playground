@@ -1,5 +1,25 @@
+# Node.js
 node_modules/
 dist/
 .env
 *.log
+
+# .NET
+bin/
+obj/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.nupkg
+*.snupkg
+packages/
+
+# IDE
+.vs/
+.idea/
+*.sln.iml
+
+# OS files
 .DS_Store
+Thumbs.db

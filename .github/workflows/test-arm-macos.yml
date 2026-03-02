@@ -1,0 +1,50 @@
+name: Test LibGit2Sharp on ARM64 macOS
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'repos/playground/GitCompatibilityTest/**'
+      - 'repos/playground/.github/workflows/test-arm-macos.yml'
+  pull_request:
+    paths:
+      - 'repos/playground/GitCompatibilityTest/**'
+      - 'repos/playground/.github/workflows/test-arm-macos.yml'
+  workflow_dispatch:
+
+jobs:
+  test-on-arm-macos:
+    name: Test Git Library Compatibility
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Verify .NET installation
+        run: dotnet --info
+
+      - name: Restore dependencies
+        working-directory: ./repos/playground/GitCompatibilityTest
+        run: dotnet restore
+
+      - name: Build project
+        working-directory: ./repos/playground/GitCompatibilityTest
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run verification program
+        working-directory: ./repos/playground/GitCompatibilityTest
+        run: dotnet run --configuration Release --no-build
+
+      - name: Verify platform
+        run: |
+          echo "Running on macOS"
+          arch
+          sw_vers
