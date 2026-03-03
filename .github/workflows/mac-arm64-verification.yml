@@ -28,7 +28,6 @@ jobs:
 
     env:
       HAGICODE_VERSION: ${{ github.event.inputs.version || 'latest' }}
-      HAGICODE_DIR: ${{ runner.temp }}/hagicode-mac-arm64
 
     steps:
       - name: Checkout repository
@@ -44,7 +43,7 @@ jobs:
       - name: Install .NET 10 Runtime
         run: |
           echo "=== Installing .NET 10 SDK ==="
-          curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0
+          curl -sSL https://dotnet/v1/dotnet-install.sh | bash -s -- --channel 10.0
           export DOTNET_ROOT="$HOME/.dotnet"
           export PATH="$DOTNET_ROOT:$PATH"
           echo "DOTNET_ROOT=$DOTNET_ROOT" >> $GITHUB_ENV
@@ -56,15 +55,7 @@ jobs:
         env:
           HAGICODE_DIR: ${{ runner.temp }}/hagicode-mac-arm64
         run: |
-          # Download and extract release
-          echo "=== Downloading and Extracting Release ==="
           bash scripts/download-launch-mac-arm64.sh
-          
-          # Verify extraction
-          if [ ! -f "$HAGICODE_DIR/start.sh" ]; then
-            echo "ERROR: start.sh not found"
-            exit 1
-          fi
 
       - name: Start application in background
         env:
@@ -73,7 +64,6 @@ jobs:
           echo "=== Starting Application in Background ==="
           cd "$HAGICODE_DIR"
           
-          # Start application in background, redirecting output to logs
           nohup bash start.sh > app.log 2>&1 &
           APP_PID=$!
           
@@ -81,7 +71,6 @@ jobs:
           echo "Waiting for startup..."
           sleep 5
           
-          # Check if process is still running
           if kill -0 $APP_PID 2>/dev/null; then
             echo "Application is running (PID: $APP_PID)"
             echo "$APP_PID" > app.pid
@@ -98,7 +87,6 @@ jobs:
           echo "=== Monitoring Application ==="
           cd "$HAGICODE_DIR"
           
-          # Wait and check logs
           for i in {1..5}; do
             sleep 2
             if [ -f app.log ]; then
@@ -107,7 +95,6 @@ jobs:
             fi
           done
           
-          # Final status check
           if [ -f app.pid ]; then
             PID=$(cat app.pid)
             if kill -0 $PID 2>/dev/null; then
