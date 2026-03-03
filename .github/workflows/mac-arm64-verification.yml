@@ -1,0 +1,114 @@
+name: macOS ARM64 Verification
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'scripts/download-launch-mac-arm64.sh'
+      - '.github/workflows/mac-arm64-verification.yml'
+  pull_request:
+    paths:
+      - 'scripts/download-launch-mac-arm64.sh'
+      - '.github/workflows/mac-arm64-verification.yml'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Specific HagiCode version to test (leave empty for latest)'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  mac-arm64-test:
+    name: Test on macOS ARM64
+    runs-on: macos-14
+    timeout-minutes: 15
+
+    env:
+      HAGICODE_VERSION: ${{ github.event.inputs.version || 'latest' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Display runner information
+        run: |
+          echo "=== Runner Information ==="
+          echo "OS: $(uname -s)"
+          echo "Architecture: $(uname -m)"
+          echo "macOS Version: $(sw_vers -productVersion)"
+          echo "Working Directory: $(pwd)"
+
+      - name: Install .NET 10 Runtime
+        run: |
+          echo "=== Installing .NET 10 SDK ==="
+          curl -sSL https://dotnet/v1/dotnet-install.sh | bash -s -- --channel 10.0
+          export DOTNET_ROOT="$HOME/.dotnet"
+          export PATH="$DOTNET_ROOT:$PATH"
+          echo "DOTNET_ROOT=$DOTNET_ROOT" >> $GITHUB_ENV
+          echo "$DOTNET_ROOT" >> $GITHUB_PATH
+          dotnet --info
+          echo "=== .NET Installation Complete ==="
+
+      - name: Run download and launch script
+        id: launch
+        env:
+          HAGICODE_DIR: ${{ runner.temp }}/hagicode-mac-arm64
+        timeout-minutes: 10
+        continue-on-error: true
+        run: |
+          echo "=== Running Download and Launch Script ==="
+          echo "Version: $HAGICODE_VERSION"
+          echo "Directory: $HAGICODE_DIR"
+          export HAGICODE_VERSION="$HAGICODE_VERSION"
+          export HAGICODE_DIR="$HAGICODE_DIR"
+          export DOTNET_ROOT="$DOTNET_ROOT"
+          bash scripts/download-launch-mac-arm64.sh || exit_code=$?
+          if [ -n "$exit_code" ] && [ "$exit_code" -ne 0 ]; then
+            echo "Script exited with code: $exit_code"
+            exit $exit_code
+          fi
+          echo "Application started successfully!"
+          sleep 3
+
+      - name: Capture application logs on failure
+        if: ${{ failure() && steps.launch.outcome == 'failure' }}
+        run: |
+          HAGICODE_DIR="${{ runner.temp }}/hagicode-mac-arm64"
+          echo "=== Application Launch Failed ==="
+          ls -la "$HAGICODE_DIR" || echo "Directory not found"
+          find "$HAGICODE_DIR" -name "*.log" -type f -exec echo "--- {} ---" \; -exec cat {} \; 2>/dev/null || echo "No log files found"
+          find "$HAGICODE_DIR" -maxdepth 2 -type f | head -20 || echo "No files found"
+
+      - name: Verify platform
+        run: |
+          echo "=== Platform Verification ==="
+          arch
+          sw_vers
+
+      - name: Upload diagnostic artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-arm64-logs-${{ github.run_id }}
+          path: ${{ runner.temp }}/hagicode-mac-arm64/
+          retention-days: 7
+
+      - name: Summary
+        if: ${{ always() }}
+        run: |
+          echo "### macOS ARM64 Verification Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Result:** ${{ steps.launch.outcome }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Version Tested:** $HAGICODE_VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "**Runner:** macos-14 (ARM64)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See artifacts for detailed logs." >> $GITHUB_STEP_SUMMARY
+
+      - name: Report failure
+        if: ${{ failure() && steps.launch.outcome == 'failure' }}
+        run: |
+          echo "::error::macOS ARM64 verification failed. Check logs for details."
+          exit 1
