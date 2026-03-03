@@ -150,6 +150,10 @@ public class ClientConfigDto
     /// </summary>
     public DoubaoVoice.SDK.DoubaoVoiceConfig ToDoubaoVoiceConfig()
     {
+        // Generate a unique device ID if not provided (critical for SDK authentication)
+        // This matches the CLI behavior where Did is generated per connection
+        var deviceId = string.IsNullOrEmpty(Did) ? Guid.NewGuid().ToString("N") : Did;
+
         return new DoubaoVoice.SDK.DoubaoVoiceConfig
         {
             AppId = AppId,
@@ -168,7 +172,7 @@ public class ClientConfigDto
             ShowUtterances = ShowUtterances ?? true,
             EnableNonstream = EnableNonstream ?? false,
             Uid = Uid ?? "demo_uid",
-            Did = Did ?? string.Empty,
+            Did = deviceId,
             Platform = "dotnet",
             SdkVersion = "1.0.0",
             AppVersion = "1.0.0"
