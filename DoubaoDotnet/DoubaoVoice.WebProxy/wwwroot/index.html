@@ -832,8 +832,12 @@
                     const inputBuffer = audioProcessingEvent.inputBuffer;
                     const inputData = inputBuffer.getChannelData(0);
 
-                    // 累积音频数据
-                    const samplesPerChunk = 8000;  // 500ms@16kHz
+                    // 累积音频数据 - 基于 500ms 时长计算累积阈值
+                    const targetSampleRate = parseInt(new URL(document.getElementById('wsUrl').value)
+                        .searchParams.get('sampleRate') || '16000');
+                    const currentSampleRate = audioContext.sampleRate;
+                    const samplesPerChunk = Math.floor(targetSampleRate * ACCUMULATION_INTERVAL / 1000);  // 500ms @ targetRate
+
                     if (audioBufferAccumulator.length === 0) {
                         console.log('[DEBUG] 初始化累积器');
                     }
@@ -850,7 +854,9 @@
                 };
 
                 audioSource.connect(scriptProcessor);
-                console.log('[DEBUG] ScriptProcessor 连接成功');
+                // ScriptProcessor 必须连接到 destination 才会触发 onaudioprocess 回调
+                scriptProcessor.connect(audioContext.destination);
+                console.log('[DEBUG] ScriptProcessor 连接成功（已连接到 destination）');
                 log('音频录制已启动（使用ScriptProcessor)', 'success');
 
             } catch (error) {
@@ -872,10 +878,34 @@
                 const sampleCount = audioBufferAccumulator.length;
                 console.log('[DEBUG] 需要处理的采样数:', sampleCount);
 
+                // 获取目标采样率
+                const targetSampleRate = parseInt(new URL(document.getElementById('wsUrl').value)
+                    .searchParams.get('sampleRate') || '16000');
+
+                // 计算重采样后的长度
+                const currentSampleRate = audioContext.sampleRate;
+                const resampledLength = Math.floor(sampleCount * targetSampleRate / currentSampleRate);
+
+                console.log('[DEBUG] 重采样: 从', currentSampleRate, 'Hz 到', targetSampleRate, 'Hz,',
+                    sampleCount, '->', resampledLength, '个样本');
+
+                // 使用 OfflineAudioContext 进行重采样
+                const audioBuffer = audioContext.createBuffer(1, sampleCount, currentSampleRate);
+                audioBuffer.getChannelData(0).set(audioBufferAccumulator);
+
+                const offlineContext = new OfflineAudioContext(1, resampledLength, targetSampleRate);
+                const source = offlineContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(offlineContext.destination);
+                source.start();
+
+                const renderedBuffer = await offlineContext.startRendering();
+                const resampledData = renderedBuffer.getChannelData(0);
+
                 // 转换为16位PCM
-                const pcmData = new Int16Array(sampleCount);
-                for (let i = 0; i < sampleCount; i++) {
-                    const sample = audioBufferAccumulator[i];
+                const pcmData = new Int16Array(resampledLength);
+                for (let i = 0; i < resampledLength; i++) {
+                    const sample = resampledData[i];
                     const clamped = Math.max(-1, Math.min(1, sample));
                     pcmData[i] = Math.round(clamped * 32767);
                 }
