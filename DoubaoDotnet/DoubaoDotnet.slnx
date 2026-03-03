@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="DoubaoVoice.Cli/DoubaoVoice.Cli.csproj" />
+  <Project Path="DoubaoVoice.SDK/DoubaoVoice.SDK.csproj" />
+</Solution>
