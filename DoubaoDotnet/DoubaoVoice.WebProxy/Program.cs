@@ -1,9 +1,13 @@
 using DoubaoVoice.WebProxy.Services;
 using DoubaoVoice.WebProxy.Models;
+using DoubaoVoice.WebProxy.Handlers;
 using Serilog;
 using System.Text.Json;
 using System.Linq;
 using System.Text.Json.Serialization;
+using System.Collections.Concurrent;
+using DoubaoVoice.SDK;
+using System.Net.WebSockets;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -23,8 +27,12 @@ builder.Host.UseSerilog();
 // Add services to the container
 builder.Services.AddSingleton<DoubaoSessionManager>();
 builder.Services.AddSingleton<IDoubaoSessionManager>(sp => sp.GetRequiredService<DoubaoSessionManager>());
+builder.Services.AddSingleton<DoubaoWebSocketHandler>();
 
 var app = builder.Build();
+
+// Dictionary to store Doubao clients per connection
+var doubaoClients = new ConcurrentDictionary<string, (DoubaoVoiceClient client, CancellationTokenSource cts)>();
 
 // Configure the HTTP request pipeline
 app.UseSerilogRequestLogging();
@@ -91,13 +99,20 @@ app.Map("/ws", async context =>
             return;
         }
 
+        // Log connection details for debugging
+        Log.Information("WebSocket connection request details:");
+        Log.Information("  Connection ID: {ConnectionId}", context.Connection.Id);
+        Log.Information("  App ID: {AppId}", clientConfig.AppId);
+        Log.Information("  Service URL: {ServiceUrl}", clientConfig.ServiceUrl ?? "default");
+        Log.Information("  Resource ID: {ResourceId}", clientConfig.ResourceId ?? "default");
+        Log.Information("  Sample Rate: {SampleRate}Hz", clientConfig.SampleRate ?? 16000);
+        Log.Information("  Remote IP: {RemoteIP}", context.Connection.RemoteIpAddress);
+        Log.Information("  User Agent: {UserAgent}", context.Request.Headers["User-Agent"].ToString());
+
         // Create session with client config
         var sessionManager = app.Services.GetRequiredService<IDoubaoSessionManager>();
         var session = sessionManager.CreateSession(context.Connection.Id);
         sessionManager.SetClientConfig(context.Connection.Id, clientConfig);
-
-        Log.Information("WebSocket connection accepted for {ConnectionId} with client config: AppId={AppId}",
-            context.Connection.Id, clientConfig.AppId);
 
         // Accept WebSocket
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
@@ -146,21 +161,104 @@ app.Map("/ws", async context =>
                             switch (command)
                             {
                                 case "StartRecognition":
-                                    sessionManager.UpdateSessionState(context.Connection.Id, SessionState.Recognizing);
-                                    var recognizingStatus = new
+                                    // Connect to Doubao and start recognition
+                                    try
                                     {
-                                        type = "status",
-                                        messageId = Guid.NewGuid().ToString(),
-                                        payload = new
+                                        Log.Information("StartRecognition command received for session {SessionId}", session.SessionId);
+                                        Log.Information("Creating DoubaoVoiceClient with config: AppId={AppId}, Did={Did}",
+                                            clientConfig.AppId, clientConfig.Did);
+
+                                        var voiceConfig = clientConfig.ToDoubaoVoiceConfig();
+                                        Log.Debug("DoubaoVoiceConfig created: ServiceUrl={ServiceUrl}, ResourceId={ResourceId}",
+                                            voiceConfig.ServiceUrl, voiceConfig.ResourceId);
+
+                                        var doubaoClient = new DoubaoVoiceClient(voiceConfig);
+                                        var receiveCts = new CancellationTokenSource();
+
+                                        // Subscribe to events with detailed logging
+                                        doubaoClient.OnResultReceived += async (s, e) =>
                                         {
-                                            status = "recognizing",
-                                            sessionId = session.SessionId
+                                            Log.Debug("Result received from Doubao: Text={Text}, IsFinal={IsFinal}",
+                                                e.Result.Text, e.IsFinal);
+
+                                            var resultDto = new RecognitionResultDto
+                                            {
+                                                Text = e.Result.Text,
+                                                Confidence = 1.0f,
+                                                Duration = e.Result.AudioDuration,
+                                                IsFinal = e.IsFinal,
+                                                Utterances = e.Result.Utterances.Select(u => new UtteranceDto
+                                                {
+                                                    Text = u.Text,
+                                                    StartTime = u.StartTime,
+                                                    EndTime = u.EndTime,
+                                                    Definite = u.Definite,
+                                                    Words = u.Words.Select(w => new WordDto
+                                                    {
+                                                        Text = w.Text,
+                                                        StartTime = w.StartTime,
+                                                        EndTime = w.EndTime
+                                                    }).ToList()
+                                                }).ToList()
+                                            };
+
+                                            var resultMessage = ControlMessage.CreateResult(resultDto);
+                                            await webSocket.SendAsync(System.Text.Encoding.UTF8.GetBytes(resultMessage.ToJson()),
+                                                System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
+                                            Log.Debug("Result sent to WebSocket client");
+                                        };
+
+                                        doubaoClient.OnError += (s, e) =>
+                                        {
+                                            Log.Error(e.Exception, "Doubao error: {Message}", e.ErrorMessage);
+                                        };
+
+                                        // Connect to Doubao
+                                        Log.Information("Connecting to Doubao WebSocket at {ServiceUrl}", voiceConfig.ServiceUrl);
+                                        await doubaoClient.ConnectAsync();
+                                        Log.Information("Doubao WebSocket connection established for session {SessionId}", session.SessionId);
+
+                                        Log.Debug("Sending full client request to Doubao");
+                                        await doubaoClient.SendFullClientRequest();
+                                        Log.Debug("Full client request sent to Doubao");
+
+                                        // Start receiving messages in background
+                                        _ = Task.Run(() => doubaoClient.ReceiveMessagesAsync(receiveCts.Token));
+                                        Log.Debug("Doubao receive task started in background");
+
+                                        // Verify connection is established
+                                        var maxWait = TimeSpan.FromSeconds(3);
+                                        var startTime = DateTime.UtcNow;
+                                        while (!doubaoClient.IsConnected && (DateTime.UtcNow - startTime) < maxWait)
+                                        {
+                                            await Task.Delay(100);
                                         }
-                                    };
-                                    var recognizingJson = JsonSerializer.Serialize(recognizingStatus, jsonOptions);
-                                    await webSocket.SendAsync(System.Text.Encoding.UTF8.GetBytes(recognizingJson),
-                                        System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
-                                    Log.Information("Recognition started for session {SessionId}", session.SessionId);
+
+                                        if (!doubaoClient.IsConnected)
+                                        {
+                                            throw new Exception("Doubao WebSocket not connected after timeout");
+                                        }
+
+                                        Log.Information("Doubao connection verified, IsConnected={IsConnected}", doubaoClient.IsConnected);
+
+                                        // Store client for later cleanup
+                                        doubaoClients[context.Connection.Id] = (doubaoClient, receiveCts);
+                                        sessionManager.UpdateSessionState(context.Connection.Id, SessionState.Recognizing);
+
+                                        var recognizingStatus = ControlMessage.CreateStatus("recognizing", session.SessionId);
+                                        var recognizingJson = recognizingStatus.ToJson();
+                                        await webSocket.SendAsync(System.Text.Encoding.UTF8.GetBytes(recognizingJson),
+                                            System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
+
+                                        Log.Information("Recognition started for session {SessionId}", session.SessionId);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Log.Error(ex, "Failed to start recognition for session {SessionId}", session.SessionId);
+                                        var errorMsg = ControlMessage.CreateError("Failed to start recognition: " + ex.Message);
+                                        await webSocket.SendAsync(System.Text.Encoding.UTF8.GetBytes(errorMsg.ToJson()),
+                                            System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
+                                    }
                                     break;
 
                                 case "PauseRecognition":
@@ -183,18 +281,25 @@ app.Map("/ws", async context =>
 
                                 case "StopRecognition":
                                 case "EndRecognition":
-                                    sessionManager.UpdateSessionState(context.Connection.Id, SessionState.Closed);
-                                    var stoppedStatus = new
+                                    // Disconnect Doubao client
+                                    if (doubaoClients.TryRemove(context.Connection.Id, out var clientData))
                                     {
-                                        type = "status",
-                                        messageId = Guid.NewGuid().ToString(),
-                                        payload = new
+                                        try
                                         {
-                                            status = "closed",
-                                            sessionId = session.SessionId
+                                            clientData.cts.Cancel();
+                                            await clientData.client.DisconnectAsync();
+                                            clientData.client.Dispose();
+                                            Log.Information("Doubao client disconnected for session {SessionId}", session.SessionId);
                                         }
-                                    };
-                                    var stoppedJson = JsonSerializer.Serialize(stoppedStatus, jsonOptions);
+                                        catch (Exception ex)
+                                        {
+                                            Log.Warning(ex, "Error disconnecting Doubao client for session {SessionId}", session.SessionId);
+                                        }
+                                    }
+
+                                    sessionManager.UpdateSessionState(context.Connection.Id, SessionState.Closed);
+                                    var stoppedStatus = ControlMessage.CreateStatus("closed", session.SessionId);
+                                    var stoppedJson = stoppedStatus.ToJson();
                                     await webSocket.SendAsync(System.Text.Encoding.UTF8.GetBytes(stoppedJson),
                                         System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
                                     Log.Information("Recognition stopped for session {SessionId}", session.SessionId);
@@ -218,19 +323,23 @@ app.Map("/ws", async context =>
                     {
                         Log.Warning("Received audio data but session is not in recognizing state");
                     }
+                    else if (doubaoClients.TryGetValue(context.Connection.Id, out var clientData))
+                    {
+                        // Forward audio to Doubao
+                        var audioData = buffer.Take(receiveResult.Count).ToArray();
+                        try
+                        {
+                            await clientData.client.SendAudioSegment(audioData, receiveResult.EndOfMessage);
+                            Log.Debug("Forwarded {Count} bytes of audio data to Doubao", receiveResult.Count);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning(ex, "Failed to forward audio to Doubao for {ConnectionId}", context.Connection.Id);
+                        }
+                    }
                     else
                     {
-                        await sessionManager.AddAudioAsync(context.Connection.Id, buffer.Take(receiveResult.Count).ToArray());
-                        var audioObj = new
-                        {
-                            type = "audio",
-                            timestamp = DateTime.UtcNow.ToString("O"),
-                            durationMs = 200
-                        };
-                        var audioJson = JsonSerializer.Serialize(audioObj, jsonOptions);
-                        await webSocket.SendAsync(System.Text.Encoding.UTF8.GetBytes(audioJson),
-                            System.Net.WebSockets.WebSocketMessageType.Text, true, CancellationToken.None);
-                        Log.Debug("Forwarded {Count} bytes of audio data", receiveResult.Count);
+                        Log.Warning("Received audio data but Doubao client is not connected for {ConnectionId}", context.Connection.Id);
                     }
                 }
             }
@@ -241,6 +350,22 @@ app.Map("/ws", async context =>
         }
         finally
         {
+            // Cleanup Doubao client
+            if (doubaoClients.TryRemove(context.Connection.Id, out var clientData))
+            {
+                try
+                {
+                    clientData.cts.Cancel();
+                    await clientData.client.DisconnectAsync();
+                    clientData.client.Dispose();
+                    Log.Information("Doubao client cleaned up for {ConnectionId}", context.Connection.Id);
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Error cleaning up Doubao client for {ConnectionId}", context.Connection.Id);
+                }
+            }
+
             // Always remove the session
             sessionManager.RemoveSession(context.Connection.Id);
 
