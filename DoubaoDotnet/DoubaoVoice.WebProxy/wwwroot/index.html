@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DoubaoVoice.WebProxy - 实时语音识别</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background-color: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 15px;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+        h2 {
+            color: #555;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            font-weight: bold;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.connecting {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .status.recognizing {
+            background-color: #e7f3ff;
+            color: #004085;
+        }
+
+        .config-section {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        .form-group input[type="text"],
+        .form-group input[type="password"] {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .form-group .password-toggle {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 5px;
+        }
+        .form-group .password-toggle input[type="checkbox"] {
+            width: auto;
+        }
+        .form-group .form-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .connection-info {
+            margin-bottom: 20px;
+        }
+        input[type="text"] {
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .controls {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 25px;
+            flex-wrap: wrap;
+        }
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        button:not(:disabled):hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+        }
+        #btnConnect { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        #btnDisconnect { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); color: white; }
+        #btnStart { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); color: white; }
+        #btnStop { background: linear-gradient(135deg, #fa709a 0%, #fee140 100%); color: white; }
+        #btnPause { background: linear-gradient(135deg, #30cfd0 0%, #330867 100%); color: white; }
+        #btnSaveConfig { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); color: white; }
+
+        .result-area {
+            margin-top: 25px;
+            padding: 20px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-radius: 8px;
+            min-height: 100px;
+        }
+        .result-text {
+            font-size: 20px;
+            color: #333;
+            margin-bottom: 10px;
+            line-height: 1.6;
+        }
+        .result-placeholder {
+            color: #999;
+            font-style: italic;
+        }
+        .result-meta {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            font-size: 12px;
+            color: #666;
+        }
+        .result-meta-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .result-meta-item::before {
+            content: '●';
+            color: #667eea;
+        }
+
+        .utterances {
+            margin-top: 15px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .utterance {
+            padding: 10px 15px;
+            background: rgba(255,255,255,0.8);
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        .utterance-time {
+            font-size: 11px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+
+        .audio-indicator {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .audio-bar {
+            width: 200px;
+            height: 6px;
+            background: #e0e0e0;
+            border-radius: 3px;
+            overflow: hidden;
+        }
+        .audio-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+            transition: width 0.1s;
+            width: 0%;
+        }
+        .audio-level {
+            font-size: 14px;
+            color: #666;
+            font-weight: 600;
+            min-width: 40px;
+        }
+
+        .log {
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 25px;
+        }
+        .log::-webkit-scrollbar {
+            width: 8px;
+        }
+        .log::-webkit-scrollbar-track {
+            background: #2d2d2d;
+        }
+        .log::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 4px;
+        }
+        .log .info { color: #4fc1ff; }
+        .log .success { color: #4ec9b0; }
+        .log .error { color: #f48771; }
+        .log .warning { color: #dcdcaa; }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        .recording {
+            animation: pulse 1.5s infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 DoubaoVoice.WebProxy - 实时语音识别</h1>
+
+        <div id="status" class="status disconnected">未连接</div>
+
+        <!-- Configuration Section -->
+        <div class="config-section">
+            <h2>⚙️ 豆包配置</h2>
+            <div class="config-grid">
+                <div class="form-group">
+                    <label>App ID *</label>
+                    <input type="text" id="appId" placeholder="请输入 App ID">
+                </div>
+                <div class="form-group">
+                    <label>Access Token *</label>
+                    <input type="password" id="accessToken" placeholder="请输入 Access Token">
+                    <div class="password-toggle">
+                        <input type="checkbox" id="showToken">
+                        <label for="showToken">显示令牌</label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Service URL</label>
+                    <input type="text" id="serviceUrl" value="wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async">
+                </div>
+                <div class="form-group">
+                    <label>Resource ID</label>
+                    <input type="text" id="resourceId" value="volc.bigasr.sauc.duration">
+                </div>
+                <div class="form-group">
+                    <label>采样率</label>
+                    <input type="text" id="sampleRate" value="16000" placeholder="采样率(Hz)，默认16000">
+                </div>
+                <div class="form-group">
+                    <label>采样深度</label>
+                    <input type="text" id="bitsPerSample" value="16" placeholder="采样深度(bit)，默认16">
+                </div>
+                <div class="form-group">
+                    <label>声道数</label>
+                    <input type="text" id="channels" value="1" placeholder="声道数，默认1">
+                </div>
+                <div class="form-group form-actions">
+                    <button id="btnSaveConfig" onclick="saveConfig()">
+                        <span>💾</span> 保存配置
+                    </button>
+                    <button id="btnClearConfig" onclick="clearConfig()">
+                        <span>🗑</span> 清除配置
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="connection-info">
+            <label>WebSocket URL:</label>
+            <input type="text" id="wsUrl" value="ws://localhost:5000/ws">
+        </div>
+
+        <div class="controls">
+            <button id="btnConnect" onclick="connect()">
+                <span>🔗</span> 连接
+            </button>
+            <button id="btnDisconnect" onclick="disconnect()" disabled>
+                <span>✖</span> 断开
+            </button>
+        </div>
+
+        <div class="audio-indicator" style="display:none;" id="audioIndicator">
+            <div class="audio-bar">
+                <div class="audio-bar-fill" id="audioBarFill"></div>
+            </div>
+            <span class="audio-level" id="audioLevel">0%</span>
+        </div>
+
+        <div class="controls">
+            <button id="btnStart" onclick="startRecognition()" disabled>
+                <span>🎙</span> 开始识别
+            </button>
+            <button id="btnPause" onclick="pauseRecognition()" disabled>
+                <span>⏸</span> 暂停
+            </button>
+            <button id="btnStop" onclick="stopRecognition()" disabled>
+                <span>⏹</span> 停止
+            </button>
+        </div>
+
+        <h2>📝 识别结果</h2>
+        <div class="result-area">
+            <div id="resultText" class="result-text result-placeholder">配置保存后，点击"连接"即可开始使用...</div>
+            <div class="result-meta" id="resultMeta" style="display:none;">
+                <div class="result-meta-item">置信度: <span id="confidence">--</span></div>
+                <div class="result-meta-item">时长: <span id="duration">--</span>ms</div>
+                <div class="result-meta-item">状态: <span id="finalStatus">--</span></div>
+            </div>
+            <div class="utterances" id="utterances"></div>
+        </div>
+
+        <h2>📋 日志</h2>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let ws = null;
+        let mediaRecorder = null;
+        let audioContext = null;
+        let analyser = null;
+        let audioSource = null;
+        let sessionId = null;
+        let isRecognizing = false;
+        let isPaused = false;
+        let utteranceCount = 0;
+        let audioBufferAccumulator = [];  // 累积音频缓冲区
+        let accumulatedDuration = 0;  // 累积音频时长
+        const ACCUMULATION_INTERVAL = 500;  // 累积500ms的音频后再转换
+
+        // Toggle password visibility
+        document.getElementById('showToken').addEventListener('change', function() {
+            const tokenInput = document.getElementById('accessToken');
+            tokenInput.type = this.checked ? 'text' : 'password';
+        });
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logDiv.innerHTML += `<div class="${type}">[${timestamp}] ${escapeHtml(message)}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function updateStatus(status, className) {
+            const statusDiv = document.getElementById('status');
+            const statusMap = {
+                'disconnected': '🔴 未连接',
+                'connecting': '🟡 连接中...',
+                'connected': '🟢 已连接',
+                'recognizing': '🔵 正在识别',
+                'paused': '🟡 已暂停',
+                'config_received': '🟢 配置已接收'
+            };
+            statusDiv.textContent = statusMap[status] || status;
+            statusDiv.className = `status ${className}`;
+
+            if (className === 'recognizing' || className === 'connected') {
+                statusDiv.classList.add('recording');
+            } else {
+                statusDiv.classList.remove('recording');
+            }
+        }
+
+        function updateAudioLevel(level) {
+            const audioIndicator = document.getElementById('audioIndicator');
+            const audioBarFill = document.getElementById('audioBarFill');
+            const audioLevel = document.getElementById('audioLevel');
+
+            audioIndicator.style.display = level > 0 ? 'flex' : 'none';
+            audioBarFill.style.width = `${Math.min(level, 100)}%`;
+            audioLevel.textContent = `${Math.round(level)}%`;
+        }
+
+        // 保存配置到 localStorage
+        function saveConfig() {
+            const config = {
+                appId: document.getElementById('appId').value.trim(),
+                accessToken: document.getElementById('accessToken').value.trim(),
+                serviceUrl: document.getElementById('serviceUrl').value.trim(),
+                resourceId: document.getElementById('resourceId').value.trim(),
+                sampleRate: parseInt(document.getElementById('sampleRate').value) || 16000,
+                bitsPerSample: parseInt(document.getElementById('bitsPerSample').value) || 16,
+                channels: parseInt(document.getElementById('channels').value) || 1
+            };
+
+            if (!config.appId || !config.accessToken) {
+                log('App ID 和 Access Token 是必填项', 'error');
+                return;
+            }
+
+            localStorage.setItem('doubaoConfig', JSON.stringify(config));
+            log('配置已保存到本地存储', 'success');
+
+            // 更新 WebSocket URL 为带配置的 URL
+            const wsUrlInput = document.getElementById('wsUrl');
+            const baseUrl = wsUrlInput.value.split('?')[0];
+            const configParams = new URLSearchParams();
+            configParams.append('appId', config.appId);
+            configParams.append('accessToken', config.accessToken);
+            if (config.serviceUrl) configParams.append('serviceUrl', config.serviceUrl);
+            if (config.resourceId) configParams.append('resourceId', config.resourceId);
+            configParams.append('sampleRate', config.sampleRate.toString());
+            configParams.append('bitsPerSample', config.bitsPerSample.toString());
+            configParams.append('channels', config.channels.toString());
+
+            const fullUrl = `${baseUrl}?${configParams.toString()}`;
+            wsUrlInput.value = fullUrl;
+
+            log(`WebSocket URL 已更新为: ${fullUrl}`, 'info');
+        }
+
+        // 从 localStorage 加载配置
+        function loadConfig() {
+            try {
+                const saved = localStorage.getItem('doubaoConfig');
+                if (saved) {
+                    const config = JSON.parse(saved);
+
+                    if (config.appId) document.getElementById('appId').value = config.appId;
+                    if (config.accessToken) document.getElementById('accessToken').value = config.accessToken;
+                    if (config.serviceUrl) document.getElementById('serviceUrl').value = config.serviceUrl;
+                    if (config.resourceId) document.getElementById('resourceId').value = config.resourceId;
+                    if (config.sampleRate) document.getElementById('sampleRate').value = config.sampleRate;
+                    if (config.bitsPerSample) document.getElementById('bitsPerSample').value = config.bitsPerSample;
+                    if (config.channels) document.getElementById('channels').value = config.channels;
+
+                    log('已从本地存储加载配置', 'success');
+
+                    // 更新 WebSocket URL
+                    const wsUrlInput = document.getElementById('wsUrl');
+                    const baseUrl = wsUrlInput.value.split('?')[0];
+                    const configParams = new URLSearchParams();
+                    configParams.append('appId', config.appId);
+                    configParams.append('accessToken', config.accessToken);
+                    if (config.serviceUrl) configParams.append('serviceUrl', config.serviceUrl);
+                    if (config.resourceId) configParams.append('resourceId', config.resourceId);
+                    configParams.append('sampleRate', config.sampleRate.toString());
+                    configParams.append('bitsPerSample', config.bitsPerSample.toString());
+                    configParams.append('channels', config.channels.toString());
+
+                    const fullUrl = `${baseUrl}?${configParams.toString()}`;
+                    wsUrlInput.value = fullUrl;
+                }
+            } catch (e) {
+                log('加载本地配置失败: ' + e.message, 'warning');
+            }
+        }
+
+        // 清除配置
+        function clearConfig() {
+            localStorage.removeItem('doubaoConfig');
+            document.getElementById('appId').value = '';
+            document.getElementById('accessToken').value = '';
+            document.getElementById('serviceUrl').value = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async';
+            document.getElementById('resourceId').value = 'volc.bigasr.sauc.duration';
+            document.getElementById('sampleRate').value = '16000';
+            document.getElementById('bitsPerSample').value = '16';
+            document.getElementById('channels').value = '1';
+
+            // 重置 WebSocket URL
+            document.getElementById('wsUrl').value = 'ws://localhost:5000/ws';
+
+            log('配置已清除', 'info');
+        }
+
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            if (!url) {
+                log('请输入 WebSocket URL', 'error');
+                return;
+            }
+
+            log(`正在连接到 ${url}...`, 'info');
+            updateStatus('connecting', 'connecting');
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    updateStatus('connected', 'connected');
+                    log('WebSocket 连接成功', 'success');
+                    document.getElementById('btnConnect').disabled = true;
+                    document.getElementById('btnDisconnect').disabled = false;
+                    document.getElementById('wsUrl').disabled = true;
+                };
+
+                ws.onmessage = (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        handleWebSocketMessage(message);
+                    } catch (e) {
+                        log(`解析消息失败: ${e.message}`, 'error');
+                    }
+                };
+
+                ws.onclose = (event) => {
+                    updateStatus('disconnected', 'disconnected');
+                    log(`WebSocket 连接关闭: ${event.code} ${event.reason}`, 'warning');
+                    resetConnectionState();
+                    stopAudioRecording();
+                };
+
+                ws.onerror = (error) => {
+                    log('WebSocket 错误: ' + JSON.stringify(error), 'error');
+                };
+            } catch (e) {
+                log('连接失败: ' + e.message, 'error');
+                updateStatus('disconnected', 'disconnected');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function resetConnectionState() {
+            document.getElementById('btnConnect').disabled = false;
+            document.getElementById('btnDisconnect').disabled = true;
+            document.getElementById('wsUrl').disabled = false;
+            document.getElementById('btnStart').disabled = true;
+            document.getElementById('btnPause').disabled = true;
+            document.getElementById('btnStop').disabled = true;
+            sessionId = null;
+            isRecognizing = false;
+            isPaused = false;
+            updateAudioLevel(0);
+        }
+
+        function handleWebSocketMessage(message) {
+            log(`收到消息类型: ${message.type}`, 'info');
+
+            switch (message.type) {
+                case 'status':
+                    handleStatusMessage(message);
+                    break;
+                case 'result':
+                    handleResultMessage(message);
+                    break;
+                case 'error':
+                    handleErrorMessage(message);
+                    break;
+                case 'audio':
+                    // 后端确认收到音频数据的消息，无需特殊处理
+                    log(`收到音频确认: ${message.timestamp || 'N/A'}`, 'debug');
+                    break;
+                default:
+                    log(`未知消息类型: ${message.type}`, 'warning');
+            }
+        }
+
+        function handleStatusMessage(message) {
+            const payload = message.payload;
+
+            switch (payload.status) {
+                case 'connected':
+                    sessionId = payload.sessionId;
+                    log(`会话已创建: ${sessionId}`, 'success');
+                    document.getElementById('btnStart').disabled = false;
+                    document.getElementById('btnPause').disabled = true;
+                    document.getElementById('btnStop').disabled = true;
+                    break;
+
+                case 'recognizing':
+                    log('语音识别已开始', 'success');
+                    updateStatus('recognizing', 'recognizing');
+                    document.getElementById('btnStart').disabled = true;
+                    document.getElementById('btnPause').disabled = false;
+                    document.getElementById('btnStop').disabled = false;
+                    isRecognizing = true;
+                    isPaused = false;
+                    startAudioRecording();
+                    break;
+
+                case 'paused':
+                    log('语音识别已暂停', 'warning');
+                    updateStatus('paused', 'paused');
+                    document.getElementById('btnStart').disabled = true;
+                    document.getElementById('btnPause').disabled = true;
+                    document.getElementById('btnStop').disabled = false;
+                    isPaused = true;
+                    break;
+
+                case 'closed':
+                    log('语音识别已结束', 'info');
+                    updateStatus('connected', 'connected');
+                    document.getElementById('btnStart').disabled = false;
+                    document.getElementById('btnPause').disabled = true;
+                    document.getElementById('btnStop').disabled = true;
+                    isRecognizing = false;
+                    isPaused = false;
+                    stopAudioRecording();
+                    break;
+            }
+        }
+
+        function handleResultMessage(message) {
+            const result = message.payload;
+
+            // 更新结果显示
+            const resultDiv = document.getElementById('resultText');
+            resultDiv.classList.remove('result-placeholder');
+            resultDiv.textContent = result.text || '(无识别结果)';
+
+            // 更新元数据
+            document.getElementById('resultMeta').style.display = 'flex';
+            document.getElementById('confidence').textContent = result.confidence
+                ? `${(result.confidence * 100).toFixed(1)}%`
+                : '--';
+            document.getElementById('duration').textContent = result.duration || '--';
+            document.getElementById('finalStatus').textContent = result.isFinal ? '最终' : '临时';
+
+            // 处理话语片段
+            if (result.utterances && result.utterances.length > 0) {
+                const utterancesDiv = document.getElementById('utterances');
+                utteranceCount++;
+
+                // 只显示最新的话语
+                const utterance = result.utterances[result.utterances.length - 1];
+                const utteranceEl = document.createElement('div');
+                utteranceEl.className = 'utterance';
+                utteranceEl.innerHTML = `
+                    <div class="utterance-time">${utterance.startTime}ms - ${utterance.endTime}ms</div>
+                    <div>${escapeHtml(utterance.text)}</div>
+                `;
+                utterancesDiv.appendChild(utteranceEl);
+
+                // 保持最多5条记录
+                while (utterancesDiv.children.length > 5) {
+                    utterancesDiv.removeChild(utterancesDiv.firstChild);
+                }
+
+                log(`识别结果: ${result.text} ${result.isFinal ? '(最终)' : '(临时)'}`, result.isFinal ? 'success' : 'info');
+            }
+        }
+
+        function handleErrorMessage(message) {
+            const error = message.payload;
+            log(`错误: ${error.errorMessage} (代码: ${error.errorCode})`, 'error');
+        }
+
+        function startRecognition() {
+            console.log('[DEBUG] startRecognition() 被调用');
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.log('[DEBUG] WebSocket 未连接或不在线');
+                log('WebSocket 未连接', 'error');
+                return;
+            }
+
+            console.log('[DEBUG] 准备发送开始识别命令...');
+            const message = {
+                type: 'control',
+                messageId: generateMessageId(),
+                timestamp: new Date().toISOString(),
+                payload: {
+                    command: 'StartRecognition',
+                    parameters: {}
+                }
+            };
+
+            console.log('[DEBUG] 发送消息:', JSON.stringify(message));
+            ws.send(JSON.stringify(message));
+            console.log('[DEBUG] 开始识别命令已发送');
+            log('发送开始识别命令', 'info');
+        }
+
+        function pauseRecognition() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('WebSocket 未连接', 'error');
+                return;
+            }
+
+            const message = {
+                type: 'control',
+                messageId: generateMessageId(),
+                timestamp: new Date().toISOString(),
+                payload: {
+                    command: 'PauseRecognition',
+                    parameters: {}
+                }
+            };
+
+            ws.send(JSON.stringify(message));
+            log('发送暂停识别命令', 'info');
+        }
+
+        function stopRecognition() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                log('WebSocket 未连接', 'error');
+                return;
+            }
+
+            const message = {
+                type: 'control',
+                messageId: generateMessageId(),
+                timestamp: new Date().toISOString(),
+                payload: {
+                    command: 'EndRecognition',
+                    parameters: {}
+                }
+            };
+
+            ws.send(JSON.stringify(message));
+            log('发送停止识别命令', 'info');
+        }
+
+        function generateMessageId() {
+            return 'msg_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+        }
+
+        // 音频录制功能
+        let scriptProcessor = null;  // 用于处理音频的脚本处理器
+
+        async function startAudioRecording() {
+            try {
+                console.log('[DEBUG] startAudioRecording() 开始执行');
+                log('正在获取麦克风权限...', 'info');
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 16000  // 直接设置16kHz采样率
+                    }
+                });
+
+                console.log('[DEBUG] 麦克风流获取成功:', stream);
+                console.log('[DEBUG] 音频轨道数:', stream.getAudioTracks().length);
+                log('麦克风权限已获取，流中轨道数: ' + stream.getAudioTracks().length, 'success');
+
+                // 创建音频上下文
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                console.log('[DEBUG] AudioContext 创建成功, sampleRate:', audioContext.sampleRate);
+
+                // 创建音频源和分析器
+                audioSource = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+
+                audioSource.connect(analyser);
+                analyser.connect(audioContext.destination);  // 连接到destination以便能听到声音
+
+                // 使用ScriptProcessorNode直接获取PCM数据
+                const bufferSize = 4096;  // 4096个样本，约250ms@16kHz
+                const numberOfInputChannels = 1;
+                const numberOfOutputChannels = 1;
+
+                try {
+                    scriptProcessor = audioContext.createScriptProcessor(bufferSize, numberOfInputChannels, numberOfOutputChannels);
+                } catch (e) {
+                    console.error('[ERROR] ScriptProcessor不支持，尝试使用AudioWorklet:', e);
+                    alert('您的浏览器不支持ScriptProcessor，请使用支持AudioWorklet的浏览器');
+                    return;
+                }
+
+                scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+                    console.log('[DEBUG] onaudioprocess 触发，输入数据大小:', audioProcessingEvent.inputBuffer.length);
+
+                    if (!isRecognizing || !ws || ws.readyState !== WebSocket.OPEN) {
+                        return;  // 如果不在识别状态，不处理音频
+                    }
+
+                    const inputBuffer = audioProcessingEvent.inputBuffer;
+                    const inputData = inputBuffer.getChannelData(0);
+
+                    // 累积音频数据
+                    const samplesPerChunk = 8000;  // 500ms@16kHz
+                    if (audioBufferAccumulator.length === 0) {
+                        console.log('[DEBUG] 初始化累积器');
+                    }
+
+                    for (let i = 0; i < inputData.length; i++) {
+                        audioBufferAccumulator.push(inputData[i]);
+                    }
+
+                    // 当累积达到一定数量时，转换为16位PCM并发送
+                    if (audioBufferAccumulator.length >= samplesPerChunk) {
+                        console.log('[DEBUG] 累积到', audioBufferAccumulator.length, '个采样，开始转换...');
+                        processAccumulatedSamples();
+                    }
+                };
+
+                audioSource.connect(scriptProcessor);
+                console.log('[DEBUG] ScriptProcessor 连接成功');
+                log('音频录制已启动（使用ScriptProcessor)', 'success');
+
+            } catch (error) {
+                console.error('[ERROR] 启动音频录制失败:', error);
+                console.error('[ERROR] 错误堆栈:', error.stack);
+                log(`启动音频录制失败: ${error.message}`, 'error');
+                log(`错误详情: ${error.stack}`, 'error');
+                alert('无法访问麦克风，请确保已授予麦克风权限\n\n错误信息: ' + error.message);
+            }
+        }
+
+        // 处理累积的采样数据
+        async function processAccumulatedSamples() {
+            if (audioBufferAccumulator.length === 0) {
+                return;
+            }
+
+            try {
+                const sampleCount = audioBufferAccumulator.length;
+                console.log('[DEBUG] 需要处理的采样数:', sampleCount);
+
+                // 转换为16位PCM
+                const pcmData = new Int16Array(sampleCount);
+                for (let i = 0; i < sampleCount; i++) {
+                    const sample = audioBufferAccumulator[i];
+                    const clamped = Math.max(-1, Math.min(1, sample));
+                    pcmData[i] = Math.round(clamped * 32767);
+                }
+
+                console.log('[DEBUG] PCM转换完成，字节数:', pcmData.byteLength);
+
+                // 发送PCM数据
+                if (pcmData.byteLength > 100 && ws && ws.readyState === WebSocket.OPEN) {
+                    try {
+                        ws.send(pcmData.buffer);
+                        console.log('[DEBUG] PCM数据发送成功');
+                        log(`发送音频数据: ${pcmData.byteLength} 字节`, 'debug');
+                    } catch (sendError) {
+                        console.error('[ERROR] 发送PCM数据失败:', sendError);
+                        log(`发送音频数据失败: ${sendError.message}`, 'error');
+                    }
+                }
+
+                // 清空累积器
+                audioBufferAccumulator = [];
+                console.log('[DEBUG] 累积器已清空');
+            } catch (e) {
+                console.error('[ERROR] 批量PCM转换失败:', e);
+                log(`批量PCM转换失败: ${e.message}`, 'error');
+                audioBufferAccumulator = [];
+            }
+        }
+
+        async function stopAudioRecording() {
+            console.log('[DEBUG] stopAudioRecording() 被调用');
+            console.log('[DEBUG] scriptProcessor 存在:', !!scriptProcessor);
+            console.log('[DEBUG] 累积的采样数:', audioBufferAccumulator.length);
+
+            // 停止 ScriptProcessor
+            if (scriptProcessor) {
+                try {
+                    scriptProcessor.disconnect();
+                    audioSource.disconnect();
+                    console.log('[DEBUG] ScriptProcessor 已断开连接');
+                } catch (e) {
+                    console.error('[ERROR] 断开ScriptProcessor失败:', e);
+                }
+                scriptProcessor = null;
+            }
+
+            // 处理剩余的累积音频
+            if (audioBufferAccumulator.length > 0) {
+                console.log('[DEBUG] 处理剩余的累积音频...');
+                await processAccumulatedSamples();
+            }
+
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
+            updateAudioLevel(0);
+            console.log('[DEBUG] stopAudioRecording() 完成');
+        }
+
+        function getSupportedMimeType() {
+            const types = [
+                // 优先尝试 PCM 格式（兼容性更好）
+                'audio/pcm;rate=16000;bit=16;channels=1',
+                'audio/webm;codecs=opus',
+                'audio/webm;codecs=vp9,opus',
+                'audio/webm',
+                'audio/ogg;codecs=opus',
+                'audio/ogg',
+                'audio/mp4',
+                'audio/aac'
+            ];
+
+            for (const type of types) {
+                try {
+                    if (MediaRecorder.isTypeSupported(type)) {
+                        log(`使用音频格式: ${type}`, 'info');
+                        return type;
+                    }
+                } catch (e) {
+                    // 某些格式可能抛出异常，继续尝试下一个
+                }
+            }
+            // 默认使用 webm
+            log(`使用默认音频格式: audio/webm`, 'info');
+            return 'audio/webm';
+        }
+
+        function updateAudioLevelLoop() {
+            if (!analyser || !isRecognizing) return;
+
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+            analyser.getByteFrequencyData(dataArray);
+
+            // 计算平均音量
+            let sum = 0;
+            for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+            }
+            const average = sum / dataArray.length;
+
+            // 归一化到0-100范围
+            const level = (average / 255) * 100 * 3; // 放大以便显示
+            updateAudioLevel(Math.min(level, 100));
+
+            // 继续循环
+            if (isRecognizing) {
+                requestAnimationFrame(updateAudioLevelLoop);
+            }
+        }
+
+        async function convertToPCM16kHz(audioBuffer) {
+            try {
+                // 检查音频缓冲区是否有效
+                if (!audioBuffer || audioBuffer.duration <= 0 || audioBuffer.numberOfChannels === 0) {
+                    log(`音频缓冲区无效: duration=${audioBuffer?.duration}, channels=${audioBuffer?.numberOfChannels}`, 'warning');
+                    return null;
+                }
+
+                // 从 WebSocket URL 查询字符串中获取采样率
+                const wsUrl = document.getElementById('wsUrl').value;
+                const url = new URL(wsUrl);
+                const sampleRateFromUrl = parseInt(url.searchParams.get('sampleRate') || '16000');
+
+                // 计算重采样后的帧数
+                const resampledLength = Math.ceil(audioBuffer.duration * sampleRateFromUrl / audioBuffer.sampleRate);
+
+                // 如果重采样后的帧数小于1，跳过转换
+                if (resampledLength < 1) {
+                    log(`重采样后帧数不足: ${resampledLength}，跳过此帧`, 'warning');
+                    return null;
+                }
+
+                // 创建离线音频上下文进行重采样
+                const offlineContext = new OfflineAudioContext(
+                    1,
+                    resampledLength,
+                    sampleRateFromUrl
+                );
+
+                const source = offlineContext.createBufferSource();
+                source.buffer = audioBuffer;
+                source.connect(offlineContext.destination);
+                source.start();
+
+                const renderedBuffer = await offlineContext.startRendering();
+
+                // 获取重采样后的数据并转换为16位PCM
+                const rawData = renderedBuffer.getChannelData(0);
+                const pcmData = new Int16Array(rawData.length);
+
+                for (let i = 0; i < rawData.length; i++) {
+                    // 将浮点数转换为16位PCM (-32768 到 32767)
+                    const sample = Math.max(-32768, Math.min(32767, rawData[i] * 32768));
+                    pcmData[i] = sample;
+                }
+
+                return pcmData.buffer;
+            } catch (e) {
+                log(`PCM转换失败: ${e.message}`, 'error');
+                return null;
+            }
+        }
+
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            loadConfig();
+            log('页面加载完成，准备就绪', 'info');
+        });
+    </script>
+</body>
+</html>
