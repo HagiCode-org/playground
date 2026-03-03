@@ -377,7 +377,6 @@
 
     <script>
         let ws = null;
-        let mediaRecorder = null;
         let audioContext = null;
         let analyser = null;
         let audioSource = null;
@@ -385,9 +384,6 @@
         let isRecognizing = false;
         let isPaused = false;
         let utteranceCount = 0;
-        let audioBufferAccumulator = [];  // 累积音频缓冲区
-        let accumulatedDuration = 0;  // 累积音频时长
-        const ACCUMULATION_INTERVAL = 500;  // 累积500ms的音频后再转换
 
         // Toggle password visibility
         document.getElementById('showToken').addEventListener('change', function() {
@@ -778,18 +774,19 @@
         }
 
         // 音频录制功能
-        let scriptProcessor = null;  // 用于处理音频的脚本处理器
+        let audioWorkletNode = null;  // AudioWorkletNode for modern audio processing
 
         async function startAudioRecording() {
             try {
                 console.log('[DEBUG] startAudioRecording() 开始执行');
                 log('正在获取麦克风权限...', 'info');
+
                 const stream = await navigator.mediaDevices.getUserMedia({
                     audio: {
                         echoCancellation: true,
                         noiseSuppression: true,
                         autoGainControl: true,
-                        sampleRate: 16000  // 直接设置16kHz采样率
+                        sampleRate: 48000  // 默认48kHz，worklet会重采样到16kHz
                     }
                 });
 
@@ -807,57 +804,41 @@
                 analyser.fftSize = 256;
 
                 audioSource.connect(analyser);
-                analyser.connect(audioContext.destination);  // 连接到destination以便能听到声音
+                // 不连接到 destination，避免音频回环影响识别
 
-                // 使用ScriptProcessorNode直接获取PCM数据
-                const bufferSize = 4096;  // 4096个样本，约250ms@16kHz
-                const numberOfInputChannels = 1;
-                const numberOfOutputChannels = 1;
-
+                // 加载 AudioWorklet
                 try {
-                    scriptProcessor = audioContext.createScriptProcessor(bufferSize, numberOfInputChannels, numberOfOutputChannels);
+                    await audioContext.audioWorklet.addModule('/audio-worklet.js');
+                    console.log('[DEBUG] AudioWorklet 加载成功');
                 } catch (e) {
-                    console.error('[ERROR] ScriptProcessor不支持，尝试使用AudioWorklet:', e);
-                    alert('您的浏览器不支持ScriptProcessor，请使用支持AudioWorklet的浏览器');
+                    console.error('[ERROR] AudioWorklet 加载失败:', e);
+                    alert('无法加载音频处理模块，请确保服务器正常运行');
                     return;
                 }
 
-                scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
-                    console.log('[DEBUG] onaudioprocess 触发，输入数据大小:', audioProcessingEvent.inputBuffer.length);
+                // 创建 AudioWorkletNode
+                audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
 
-                    if (!isRecognizing || !ws || ws.readyState !== WebSocket.OPEN) {
-                        return;  // 如果不在识别状态，不处理音频
-                    }
+                // 处理来自 worklet 的消息
+                audioWorkletNode.port.onmessage = (event) => {
+                    const message = event.data;
 
-                    const inputBuffer = audioProcessingEvent.inputBuffer;
-                    const inputData = inputBuffer.getChannelData(0);
-
-                    // 累积音频数据 - 基于 500ms 时长计算累积阈值
-                    const targetSampleRate = parseInt(new URL(document.getElementById('wsUrl').value)
-                        .searchParams.get('sampleRate') || '16000');
-                    const currentSampleRate = audioContext.sampleRate;
-                    const samplesPerChunk = Math.floor(targetSampleRate * ACCUMULATION_INTERVAL / 1000);  // 500ms @ targetRate
-
-                    if (audioBufferAccumulator.length === 0) {
-                        console.log('[DEBUG] 初始化累积器');
-                    }
-
-                    for (let i = 0; i < inputData.length; i++) {
-                        audioBufferAccumulator.push(inputData[i]);
-                    }
-
-                    // 当累积达到一定数量时，转换为16位PCM并发送
-                    if (audioBufferAccumulator.length >= samplesPerChunk) {
-                        console.log('[DEBUG] 累积到', audioBufferAccumulator.length, '个采样，开始转换...');
-                        processAccumulatedSamples();
+                    if (message.type === 'audioData' && isRecognizing && ws && ws.readyState === WebSocket.OPEN) {
+                        try {
+                            ws.send(message.data);
+                            console.log('[DEBUG] PCM数据发送成功, 大小:', message.data.byteLength, '采样数:', message.samples);
+                            log(`发送音频数据: ${message.data.byteLength} 字节 (${message.samples} 采样)`, 'debug');
+                        } catch (sendError) {
+                            console.error('[ERROR] 发送PCM数据失败:', sendError);
+                            log(`发送音频数据失败: ${sendError.message}`, 'error');
+                        }
                     }
                 };
 
-                audioSource.connect(scriptProcessor);
-                // ScriptProcessor 必须连接到 destination 才会触发 onaudioprocess 回调
-                scriptProcessor.connect(audioContext.destination);
-                console.log('[DEBUG] ScriptProcessor 连接成功（已连接到 destination）');
-                log('音频录制已启动（使用ScriptProcessor)', 'success');
+                // 连接音频图
+                audioSource.connect(audioWorkletNode);
+                console.log('[DEBUG] AudioWorkletNode 连接成功');
+                log('音频录制已启动（使用 AudioWorkletNode）', 'success');
 
             } catch (error) {
                 console.error('[ERROR] 启动音频录制失败:', error);
@@ -868,93 +849,20 @@
             }
         }
 
-        // 处理累积的采样数据
-        async function processAccumulatedSamples() {
-            if (audioBufferAccumulator.length === 0) {
-                return;
-            }
-
-            try {
-                const sampleCount = audioBufferAccumulator.length;
-                console.log('[DEBUG] 需要处理的采样数:', sampleCount);
-
-                // 获取目标采样率
-                const targetSampleRate = parseInt(new URL(document.getElementById('wsUrl').value)
-                    .searchParams.get('sampleRate') || '16000');
-
-                // 计算重采样后的长度
-                const currentSampleRate = audioContext.sampleRate;
-                const resampledLength = Math.floor(sampleCount * targetSampleRate / currentSampleRate);
-
-                console.log('[DEBUG] 重采样: 从', currentSampleRate, 'Hz 到', targetSampleRate, 'Hz,',
-                    sampleCount, '->', resampledLength, '个样本');
-
-                // 使用 OfflineAudioContext 进行重采样
-                const audioBuffer = audioContext.createBuffer(1, sampleCount, currentSampleRate);
-                audioBuffer.getChannelData(0).set(audioBufferAccumulator);
-
-                const offlineContext = new OfflineAudioContext(1, resampledLength, targetSampleRate);
-                const source = offlineContext.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(offlineContext.destination);
-                source.start();
-
-                const renderedBuffer = await offlineContext.startRendering();
-                const resampledData = renderedBuffer.getChannelData(0);
-
-                // 转换为16位PCM
-                const pcmData = new Int16Array(resampledLength);
-                for (let i = 0; i < resampledLength; i++) {
-                    const sample = resampledData[i];
-                    const clamped = Math.max(-1, Math.min(1, sample));
-                    pcmData[i] = Math.round(clamped * 32767);
-                }
-
-                console.log('[DEBUG] PCM转换完成，字节数:', pcmData.byteLength);
-
-                // 发送PCM数据
-                if (pcmData.byteLength > 100 && ws && ws.readyState === WebSocket.OPEN) {
-                    try {
-                        ws.send(pcmData.buffer);
-                        console.log('[DEBUG] PCM数据发送成功');
-                        log(`发送音频数据: ${pcmData.byteLength} 字节`, 'debug');
-                    } catch (sendError) {
-                        console.error('[ERROR] 发送PCM数据失败:', sendError);
-                        log(`发送音频数据失败: ${sendError.message}`, 'error');
-                    }
-                }
-
-                // 清空累积器
-                audioBufferAccumulator = [];
-                console.log('[DEBUG] 累积器已清空');
-            } catch (e) {
-                console.error('[ERROR] 批量PCM转换失败:', e);
-                log(`批量PCM转换失败: ${e.message}`, 'error');
-                audioBufferAccumulator = [];
-            }
-        }
-
         async function stopAudioRecording() {
             console.log('[DEBUG] stopAudioRecording() 被调用');
-            console.log('[DEBUG] scriptProcessor 存在:', !!scriptProcessor);
-            console.log('[DEBUG] 累积的采样数:', audioBufferAccumulator.length);
+            console.log('[DEBUG] audioWorkletNode 存在:', !!audioWorkletNode);
 
-            // 停止 ScriptProcessor
-            if (scriptProcessor) {
+            // 停止 AudioWorkletNode
+            if (audioWorkletNode) {
                 try {
-                    scriptProcessor.disconnect();
+                    audioWorkletNode.disconnect();
                     audioSource.disconnect();
-                    console.log('[DEBUG] ScriptProcessor 已断开连接');
+                    console.log('[DEBUG] AudioWorkletNode 已断开连接');
                 } catch (e) {
-                    console.error('[ERROR] 断开ScriptProcessor失败:', e);
+                    console.error('[ERROR] 断开AudioWorkletNode失败:', e);
                 }
-                scriptProcessor = null;
-            }
-
-            // 处理剩余的累积音频
-            if (audioBufferAccumulator.length > 0) {
-                console.log('[DEBUG] 处理剩余的累积音频...');
-                await processAccumulatedSamples();
+                audioWorkletNode = null;
             }
 
             if (audioContext) {
@@ -964,34 +872,6 @@
 
             updateAudioLevel(0);
             console.log('[DEBUG] stopAudioRecording() 完成');
-        }
-
-        function getSupportedMimeType() {
-            const types = [
-                // 优先尝试 PCM 格式（兼容性更好）
-                'audio/pcm;rate=16000;bit=16;channels=1',
-                'audio/webm;codecs=opus',
-                'audio/webm;codecs=vp9,opus',
-                'audio/webm',
-                'audio/ogg;codecs=opus',
-                'audio/ogg',
-                'audio/mp4',
-                'audio/aac'
-            ];
-
-            for (const type of types) {
-                try {
-                    if (MediaRecorder.isTypeSupported(type)) {
-                        log(`使用音频格式: ${type}`, 'info');
-                        return type;
-                    }
-                } catch (e) {
-                    // 某些格式可能抛出异常，继续尝试下一个
-                }
-            }
-            // 默认使用 webm
-            log(`使用默认音频格式: audio/webm`, 'info');
-            return 'audio/webm';
         }
 
         function updateAudioLevelLoop() {
@@ -1014,59 +894,6 @@
             // 继续循环
             if (isRecognizing) {
                 requestAnimationFrame(updateAudioLevelLoop);
-            }
-        }
-
-        async function convertToPCM16kHz(audioBuffer) {
-            try {
-                // 检查音频缓冲区是否有效
-                if (!audioBuffer || audioBuffer.duration <= 0 || audioBuffer.numberOfChannels === 0) {
-                    log(`音频缓冲区无效: duration=${audioBuffer?.duration}, channels=${audioBuffer?.numberOfChannels}`, 'warning');
-                    return null;
-                }
-
-                // 从 WebSocket URL 查询字符串中获取采样率
-                const wsUrl = document.getElementById('wsUrl').value;
-                const url = new URL(wsUrl);
-                const sampleRateFromUrl = parseInt(url.searchParams.get('sampleRate') || '16000');
-
-                // 计算重采样后的帧数
-                const resampledLength = Math.ceil(audioBuffer.duration * sampleRateFromUrl / audioBuffer.sampleRate);
-
-                // 如果重采样后的帧数小于1，跳过转换
-                if (resampledLength < 1) {
-                    log(`重采样后帧数不足: ${resampledLength}，跳过此帧`, 'warning');
-                    return null;
-                }
-
-                // 创建离线音频上下文进行重采样
-                const offlineContext = new OfflineAudioContext(
-                    1,
-                    resampledLength,
-                    sampleRateFromUrl
-                );
-
-                const source = offlineContext.createBufferSource();
-                source.buffer = audioBuffer;
-                source.connect(offlineContext.destination);
-                source.start();
-
-                const renderedBuffer = await offlineContext.startRendering();
-
-                // 获取重采样后的数据并转换为16位PCM
-                const rawData = renderedBuffer.getChannelData(0);
-                const pcmData = new Int16Array(rawData.length);
-
-                for (let i = 0; i < rawData.length; i++) {
-                    // 将浮点数转换为16位PCM (-32768 到 32767)
-                    const sample = Math.max(-32768, Math.min(32767, rawData[i] * 32768));
-                    pcmData[i] = sample;
-                }
-
-                return pcmData.buffer;
-            } catch (e) {
-                log(`PCM转换失败: ${e.message}`, 'error');
-                return null;
             }
         }
 

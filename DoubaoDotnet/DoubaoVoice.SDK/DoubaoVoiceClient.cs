@@ -185,12 +185,24 @@ public class DoubaoVoiceClient : IDisposable
 
                 var receivedData = buffer.Take(result.Count).ToArray();
 
+                // Debug: Print received raw data
+                Console.WriteLine($"[DEBUG] Received raw data ({receivedData.Length} bytes): {BitConverter.ToString(receivedData.Take(Math.Min(64, receivedData.Length)).ToArray())}");
+
                 try
                 {
                     var decoded = PayloadDecoder.DecodeResponse(receivedData);
 
+                    Console.WriteLine($"[DEBUG] Decoded response:");
+                    Console.WriteLine($"[DEBUG]   Header: {decoded.Header.MessageTypeSpecificFlags:X2}");
+                    Console.WriteLine($"[DEBUG]   PayloadSequence: {decoded.PayloadSequence}");
+                    Console.WriteLine($"[DEBUG]   IsLastPackage: {decoded.IsLastPackage}");
+                    Console.WriteLine($"[DEBUG]   Event: {decoded.Event}");
+                    Console.WriteLine($"[DEBUG]   IsError: {decoded.IsError}");
+
                     if (decoded.IsError)
                     {
+                        Console.WriteLine($"[DEBUG]   ErrorCode: {decoded.ErrorCode}");
+                        Console.WriteLine($"[DEBUG]   ErrorMessage: {decoded.ErrorMessage}");
                         NotifyError(new ErrorEventArgs
                         {
                             ErrorMessage = decoded.ErrorMessage ?? "Unknown error from server",
@@ -284,26 +296,49 @@ public class DoubaoVoiceClient : IDisposable
     }
 
     /// <summary>
-    /// Disconnects from the server
+    /// Disconnects from the server immediately without waiting for close handshake
     /// </summary>
     public async Task DisconnectAsync()
     {
-        if (_webSocket == null || _webSocket.State != WebSocketState.Open)
+        if (_webSocket == null)
             return;
 
         try
         {
             _receiveCts?.Cancel();
-            await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client disconnecting", CancellationToken.None);
+            // Use AbortAsync for immediate disconnect without waiting for server response
+            await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client disconnecting", CancellationToken.None).ConfigureAwait(false);
             NotifyDisconnected(new DisconnectedEventArgs { Reason = "Client disconnected" });
         }
         catch (Exception ex)
         {
-            NotifyError(new ErrorEventArgs { ErrorMessage = "Error while disconnecting", Exception = ex });
+            // Ignore disconnect errors
         }
         finally
         {
             _webSocket?.Dispose();
+            _webSocket = null;
+            _receiveCts?.Dispose();
+            _receiveCts = null;
+        }
+    }
+
+    /// <summary>
+    /// Aborts the connection immediately without any handshake
+    /// </summary>
+    public void Abort()
+    {
+        _receiveCts?.Cancel();
+        _receiveCts?.Dispose();
+        _receiveCts = null;
+
+        try
+        {
+            _webSocket?.Dispose();
+        }
+        catch { }
+        finally
+        {
             _webSocket = null;
         }
     }

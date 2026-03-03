@@ -8,18 +8,18 @@ using System.Text.Json.Serialization;
 using System.Collections.Concurrent;
 using DoubaoVoice.SDK;
 using System.Net.WebSockets;
+using DoubaoVoice.SDK.Audio;
+using System.Buffers.Binary;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add configuration support
 builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
-// Configure Serilog
+// Configure Serilog (only read from appsettings.json to avoid duplicate logs)
 Log.Logger = new LoggerConfiguration()
     .ReadFrom.Configuration(builder.Configuration)
     .Enrich.FromLogContext()
-    .WriteTo.Console()
-    .WriteTo.File("logs/doubao-proxy-.txt", rollingInterval: RollingInterval.Day)
     .CreateLogger();
 
 builder.Host.UseSerilog();
@@ -33,6 +33,9 @@ var app = builder.Build();
 
 // Dictionary to store Doubao clients per connection
 var doubaoClients = new ConcurrentDictionary<string, (DoubaoVoiceClient client, CancellationTokenSource cts)>();
+
+// Audio recorder for debugging
+var audioRecorders = new ConcurrentDictionary<string, AudioRecorder>();
 
 // Configure the HTTP request pipeline
 app.UseSerilogRequestLogging();
@@ -213,6 +216,26 @@ app.Map("/ws", async context =>
                                             Log.Error(e.Exception, "Doubao error: {Message}", e.ErrorMessage);
                                         };
 
+                                        doubaoClient.OnDisconnected += (s, e) =>
+                                        {
+                                            Log.Warning("Doubao disconnected: {Reason}", e.Reason);
+                                        };
+
+                                        doubaoClient.OnConnected += (s, e) =>
+                                        {
+                                            Log.Information("Doubao connected successfully");
+                                        };
+
+                                        // Create audio recorder for debugging
+                                        var audioRecorder = new AudioRecorder(
+                                            session.SessionId,
+                                            voiceConfig.SampleRate,
+                                            voiceConfig.BitsPerSample,
+                                            voiceConfig.Channels
+                                        );
+                                        audioRecorders[context.Connection.Id] = audioRecorder;
+                                        Log.Information("Audio recorder created for session {SessionId}", session.SessionId);
+
                                         // Connect to Doubao
                                         Log.Information("Connecting to Doubao WebSocket at {ServiceUrl}", voiceConfig.ServiceUrl);
                                         await doubaoClient.ConnectAsync();
@@ -222,8 +245,25 @@ app.Map("/ws", async context =>
                                         await doubaoClient.SendFullClientRequest();
                                         Log.Debug("Full client request sent to Doubao");
 
-                                        // Start receiving messages in background
-                                        _ = Task.Run(() => doubaoClient.ReceiveMessagesAsync(receiveCts.Token));
+                                        // Give the server a moment to process the initial request
+                                        // This matches the CLI behavior which waits 500ms before starting audio
+                                        await Task.Delay(500);
+                                        Log.Debug("Server initialization delay completed");
+
+                                        // Start receiving messages in background with detailed error logging
+                                        var receiveTask = Task.Run(async () =>
+                                        {
+                                            try
+                                            {
+                                                await doubaoClient.ReceiveMessagesAsync(receiveCts.Token);
+                                                Log.Debug("ReceiveMessagesAsync completed normally");
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                Log.Error(ex, "ReceiveMessagesAsync failed for session {SessionId}", session.SessionId);
+                                                throw;
+                                            }
+                                        }, receiveCts.Token);
                                         Log.Debug("Doubao receive task started in background");
 
                                         // Verify connection is established
@@ -281,19 +321,52 @@ app.Map("/ws", async context =>
 
                                 case "StopRecognition":
                                 case "EndRecognition":
-                                    // Disconnect Doubao client
-                                    if (doubaoClients.TryRemove(context.Connection.Id, out var clientData))
+                                    // Send final segment marker to Doubao before disconnecting
+                                    if (doubaoClients.TryGetValue(context.Connection.Id, out var clientData))
                                     {
                                         try
                                         {
-                                            clientData.cts.Cancel();
-                                            await clientData.client.DisconnectAsync();
-                                            clientData.client.Dispose();
-                                            Log.Information("Doubao client disconnected for session {SessionId}", session.SessionId);
+                                            Log.Debug("Sending final segment marker to Doubao for session {SessionId}", session.SessionId);
+                                            await clientData.client.SendAudioSegment(Array.Empty<byte>(), true);
+                                            Log.Debug("Final segment marker sent");
+
+                                            // Wait briefly for server to process
+                                            await Task.Delay(100);
                                         }
                                         catch (Exception ex)
                                         {
-                                            Log.Warning(ex, "Error disconnecting Doubao client for session {SessionId}", session.SessionId);
+                                            Log.Warning(ex, "Failed to send final segment marker for session {SessionId}", session.SessionId);
+                                        }
+                                        finally
+                                        {
+                                            // Disconnect Doubao client
+                                            try
+                                            {
+                                                clientData.cts.Cancel();
+                                                await clientData.client.DisconnectAsync();
+                                                clientData.client.Dispose();
+                                                Log.Information("Doubao client disconnected for session {SessionId}", session.SessionId);
+                                            }
+                                            catch (Exception ex)
+                                            {
+                                                Log.Warning(ex, "Error disconnecting Doubao client for session {SessionId}", session.SessionId);
+                                            }
+                                        }
+                                        // Remove from dictionary
+                                        doubaoClients.TryRemove(context.Connection.Id, out _);
+                                    }
+
+                                    // Save recorded audio for debugging
+                                    if (audioRecorders.TryRemove(context.Connection.Id, out var recorder))
+                                    {
+                                        try
+                                        {
+                                            await recorder.SaveToFileAsync();
+                                            recorder.Dispose();
+                                        }
+                                        catch (Exception ex)
+                                        {
+                                            Log.Warning(ex, "Failed to save recorded audio for session {SessionId}", session.SessionId);
                                         }
                                     }
 
@@ -321,20 +394,33 @@ app.Map("/ws", async context =>
                 {
                     if (session.State != SessionState.Recognizing)
                     {
-                        Log.Warning("Received audio data but session is not in recognizing state");
+                        Log.Warning("Received audio data but session is not in recognizing state (Current: {State})", session.State);
                     }
                     else if (doubaoClients.TryGetValue(context.Connection.Id, out var clientData))
                     {
                         // Forward audio to Doubao
                         var audioData = buffer.Take(receiveResult.Count).ToArray();
+
+                        // Record audio for debugging
+                        if (audioRecorders.TryGetValue(context.Connection.Id, out var recorder))
+                        {
+                            recorder.AddAudioData(audioData);
+                        }
+
+                        Log.Debug("Received {Count} bytes of audio data from frontend, client.IsConnected={IsConnected}",
+                            receiveResult.Count, clientData.client.IsConnected);
                         try
                         {
-                            await clientData.client.SendAudioSegment(audioData, receiveResult.EndOfMessage);
-                            Log.Debug("Forwarded {Count} bytes of audio data to Doubao", receiveResult.Count);
+                            // Note: Don't use receiveResult.EndOfMessage as the frontend sends each buffer as a complete message
+                            // The client will send a proper last segment marker when recognition ends via EndRecognition command
+                            await clientData.client.SendAudioSegment(audioData, false);
+                            Log.Debug("Forwarded {Count} bytes of audio data to Doubao successfully", receiveResult.Count);
                         }
                         catch (Exception ex)
                         {
-                            Log.Warning(ex, "Failed to forward audio to Doubao for {ConnectionId}", context.Connection.Id);
+                            Log.Error(ex, "Failed to forward audio to Doubao for {ConnectionId}", context.Connection.Id);
+                            // Don't continue the connection after a send error
+                            break;
                         }
                     }
                     else
@@ -356,13 +442,27 @@ app.Map("/ws", async context =>
                 try
                 {
                     clientData.cts.Cancel();
-                    await clientData.client.DisconnectAsync();
-                    clientData.client.Dispose();
-                    Log.Information("Doubao client cleaned up for {ConnectionId}", context.Connection.Id);
+                    // Use Abort for immediate cleanup without waiting
+                    clientData.client.Abort();
+                    Log.Debug("Doubao client aborted for {ConnectionId}", context.Connection.Id);
                 }
                 catch (Exception ex)
                 {
                     Log.Warning(ex, "Error cleaning up Doubao client for {ConnectionId}", context.Connection.Id);
+                }
+            }
+
+            // Cleanup audio recorder
+            if (audioRecorders.TryRemove(context.Connection.Id, out var recorder2))
+            {
+                try
+                {
+                    await recorder2.SaveToFileAsync();
+                    recorder2.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning(ex, "Error cleaning up audio recorder for {ConnectionId}", context.Connection.Id);
                 }
             }
 
@@ -399,4 +499,77 @@ catch (Exception ex)
 finally
 {
     Log.CloseAndFlush();
+}
+
+/// <summary>
+/// Audio recorder for debugging - saves incoming audio to WAV files
+/// </summary>
+class AudioRecorder : IDisposable
+{
+    private readonly List<byte[]> _audioChunks = new();
+    private readonly string _sessionId;
+    private readonly int _sampleRate;
+    private readonly int _bitsPerSample;
+    private readonly int _channels;
+    private long _totalBytes = 0;
+    private bool _disposed = false;
+
+    public AudioRecorder(string sessionId, int sampleRate, int bitsPerSample, int channels)
+    {
+        _sessionId = sessionId;
+        _sampleRate = sampleRate;
+        _bitsPerSample = bitsPerSample;
+        _channels = channels;
+    }
+
+    public void AddAudioData(byte[] data)
+    {
+        if (_disposed) return;
+
+        lock (_audioChunks)
+        {
+            _audioChunks.Add(data.ToArray());
+            _totalBytes += data.Length;
+        }
+    }
+
+    public async Task SaveToFileAsync()
+    {
+        if (_disposed) return;
+
+        byte[] allAudioData;
+        lock (_audioChunks)
+        {
+            allAudioData = new byte[_totalBytes];
+            int offset = 0;
+            foreach (var chunk in _audioChunks)
+            {
+                Array.Copy(chunk, 0, allAudioData, offset, chunk.Length);
+                offset += chunk.Length;
+            }
+        }
+
+        // Create WAV file
+        var wavData = WavParser.CreateWavData(allAudioData, _sampleRate, (ushort)_channels, (ushort)_bitsPerSample);
+
+        // Save to file
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var directory = "debug-audio";
+        Directory.CreateDirectory(directory);
+
+        var filePath = Path.Combine(directory, $"audio_{_sessionId}_{timestamp}.wav");
+        await File.WriteAllBytesAsync(filePath, wavData);
+
+        Log.Information("Saved debug audio to {FilePath} ({ByteCount} bytes, {DurationMs}ms)",
+            filePath, allAudioData.Length, (_totalBytes / (_sampleRate * _bitsPerSample / 8 * _channels) * 1000));
+    }
+
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            _audioChunks.Clear();
+        }
+    }
 }

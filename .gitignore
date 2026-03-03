@@ -24,3 +24,5 @@ packages/
 .DS_Store
 Thumbs.db
 DoubaoDotnet/DoubaoVoice.WebProxy/logs/
+
+DoubaoDotnet/DoubaoVoice.WebProxy/debug-audio/

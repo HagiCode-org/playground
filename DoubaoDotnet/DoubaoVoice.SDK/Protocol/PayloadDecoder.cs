@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.IO.Compression;
 using System.Text.Json;
+using System.Linq;
 
 namespace DoubaoVoice.SDK.Protocol;
 
@@ -112,10 +113,24 @@ public static class PayloadDecoder
         if (data == null || data.Length < 4)
             throw new ArgumentException("Response data must be at least 4 bytes", nameof(data));
 
+        // Debug: Print raw header
+        Console.WriteLine($"[DEBUG] DecodeResponse: received {data.Length} bytes");
+        Console.WriteLine($"[DEBUG] Raw header: {BitConverter.ToString(data.Take(4).ToArray())}");
+        Console.WriteLine($"[DEBUG] Full raw: {BitConverter.ToString(data.Take(Math.Min(32, data.Length)).ToArray())}");
+
         var result = new DecodedResponse
         {
             Header = HeaderDecoder.DecodeHeader(data)
         };
+
+        Console.WriteLine($"[DEBUG] Decoded header:");
+        Console.WriteLine($"[DEBUG]   ProtocolVersion: {result.Header.ProtocolVersion:X2}");
+        Console.WriteLine($"[DEBUG]   MessageTypeAndFlags: {result.Header.MessageTypeAndFlags:X2}");
+        Console.WriteLine($"[DEBUG]   MessageType: {result.Header.MessageType} (0b{Convert.ToString(result.Header.MessageType, 2).PadLeft(4, '0')})");
+        Console.WriteLine($"[DEBUG]   MessageTypeSpecificFlags: {result.Header.MessageTypeSpecificFlags:X2}");
+        Console.WriteLine($"[DEBUG]   SerializationAndCompression: {result.Header.SerializationAndCompression:X2}");
+        Console.WriteLine($"[DEBUG]   SerializationType: {result.Header.SerializationType}");
+        Console.WriteLine($"[DEBUG]   CompressionType: {result.Header.CompressionType}");
 
         var offset = result.Header.GetHeaderSizeBytes();
         var payload = data.AsSpan(offset);
@@ -155,6 +170,11 @@ public static class PayloadDecoder
                 result.ErrorCode = BinaryPrimitives.ReadInt32BigEndian(payload);
                 result.PayloadSize = BinaryPrimitives.ReadInt32BigEndian(payload.Slice(4));
                 payload = payload.Slice(8);
+                Console.WriteLine($"[DEBUG] Server error response: ErrorCode={result.ErrorCode}, PayloadSize={result.PayloadSize}");
+                break;
+
+            default:
+                Console.WriteLine($"[DEBUG] Unknown message type: {result.Header.MessageType}");
                 break;
         }
 
@@ -162,12 +182,24 @@ public static class PayloadDecoder
         if (result.Header.CompressionType == Protocol.GZIP && payload.Length > 0)
         {
             payload = Decompress(payload);
+            Console.WriteLine($"[DEBUG] Decompressed payload size: {payload.Length}");
+            Console.WriteLine($"[DEBUG] Decompressed payload text: {System.Text.Encoding.UTF8.GetString(payload)}");
+        }
+        else if (payload.Length > 0)
+        {
+            // Print uncompressed payload
+            Console.WriteLine($"[DEBUG] Uncompressed payload size: {payload.Length}");
+            Console.WriteLine($"[DEBUG] Uncompressed payload text: {System.Text.Encoding.UTF8.GetString(payload)}");
         }
 
         // Parse JSON payload
         if (payload.Length > 0 && result.Header.SerializationType == Protocol.JSON)
         {
             ParseJsonPayload(result, payload.ToArray());
+        }
+        else if (payload.Length > 0)
+        {
+            Console.WriteLine($"[DEBUG] Non-JSON payload, size: {payload.Length}, first 64 bytes: {BitConverter.ToString(payload.Slice(0, Math.Min(64, payload.Length)).ToArray())}");
         }
 
         return result;
@@ -180,8 +212,14 @@ public static class PayloadDecoder
     {
         try
         {
+            Console.WriteLine($"[DEBUG] ParseJsonPayload: parsing {payloadData.Length} bytes");
+            var jsonText = System.Text.Encoding.UTF8.GetString(payloadData);
+            Console.WriteLine($"[DEBUG] JSON text: {jsonText}");
+
             var jsonDoc = JsonDocument.Parse(payloadData);
             var root = jsonDoc.RootElement;
+
+            Console.WriteLine($"[DEBUG] JSON root properties: {string.Join(", ", root.EnumerateObject().Select(p => p.Name))}");
 
             // Parse audio_info
             if (root.TryGetProperty("audio_info", out var audioInfo))
@@ -190,15 +228,19 @@ public static class PayloadDecoder
                 {
                     Duration = audioInfo.TryGetProperty("duration", out var duration) ? duration.GetInt32() : 0
                 };
+                Console.WriteLine($"[DEBUG] audio_info.duration = {result.AudioInfo.Duration}");
             }
 
             // Parse result
             if (root.TryGetProperty("result", out var resultProp))
             {
+                var text = resultProp.TryGetProperty("text", out var textProp) ? textProp.GetString() ?? string.Empty : string.Empty;
                 result.Result = new RecognitionResultInfo
                 {
-                    Text = resultProp.TryGetProperty("text", out var text) ? text.GetString() ?? string.Empty : string.Empty
+                    Text = text
                 };
+                Console.WriteLine($"[DEBUG] result.text = '{text}'");
+                Console.WriteLine($"[DEBUG] result.text length = {text.Length}");
 
                 if (resultProp.TryGetProperty("utterances", out var utterances))
                 {
