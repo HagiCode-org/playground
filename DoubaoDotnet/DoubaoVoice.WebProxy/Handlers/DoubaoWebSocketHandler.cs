@@ -1,6 +1,5 @@
 using DoubaoVoice.WebProxy.Models;
 using DoubaoVoice.WebProxy.Services;
-using DoubaoVoice.WebProxy.Services.Configuration;
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
