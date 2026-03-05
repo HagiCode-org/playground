@@ -667,6 +667,115 @@ await client.DisconnectAsync();
 | `enableDDC` | bool | DDC | true |
 | `showUtterances` | bool | 显示分词 | true |
 
+### 7.4 热词参数（可选）
+
+| 参数 | 类型 | 说明 | 默认值 |
+|------|------|------|--------|
+| `hotwordId` | string | 热词配置ID | 无 |
+
+### 7.5 热词配置
+
+热词配置用于提高特定领域词汇的识别准确率。通过在前端发送 `hotwordId` 参数，WebProxy 会自动加载对应的热词上下文并传递给豆包 API。
+
+#### 7.5.1 配置热词文件
+
+在 `WebProxy` 目录下创建或编辑 `hotwords.json` 文件：
+
+```json
+{
+  "hotwords": [
+    {
+      "id": "medical",
+      "name": "医疗术语",
+      "description": "常见医疗术语",
+      "contexts": [
+        "高血压糖尿病冠心病",
+        "肺炎支气管炎肺结核"
+      ]
+    },
+    {
+      "id": "tech",
+      "name": "科技术语",
+      "description": "常见科技术语",
+      "contexts": [
+        "人工智能机器学习深度学习",
+        "云计算大数据物联网"
+      ]
+    }
+  ]
+}
+```
+
+#### 7.5.2 使用热词
+
+在前端发送 `StartRecognition` 命令时，在 `parameters` 中指定 `hotwordId`：
+
+```javascript
+// 开始识别时指定热词
+ws.send(JSON.stringify({
+    type: 'control',
+    messageId: 'msg_' + Date.now(),
+    timestamp: new Date().toISOString(),
+    payload: {
+        command: 'StartRecognition',
+        parameters: {
+            hotwordId: 'medical'  // 使用医疗术语热词
+        }
+    }
+}));
+
+// 或者使用科技术语热词
+ws.send(JSON.stringify({
+    type: 'control',
+    messageId: 'msg_' + Date.now(),
+    timestamp: new Date().toISOString(),
+    payload: {
+        command: 'StartRecognition',
+        parameters: {
+            hotwordId: 'tech'
+        }
+    }
+}));
+
+// 不使用热词（默认）
+ws.send(JSON.stringify({
+    type: 'control',
+    messageId: 'msg_' + Date.now(),
+    timestamp: new Date().toISOString(),
+    payload: {
+        command: 'StartRecognition',
+        parameters: {}
+    }
+}));
+```
+
+#### 7.5.3 SDK 中使用热词
+
+如果直接使用 SDK，可以在配置中设置 `HotwordContexts`：
+
+```csharp
+var config = new DoubaoVoiceConfig
+{
+    AppId = "your-app-id",
+    AccessToken = "your-access-token",
+    // ... 其他配置
+    HotwordContexts = new List<string>
+    {
+        "高血压糖尿病冠心病",
+        "人工智能机器学习"
+    }
+};
+
+using var client = new DoubaoVoiceClient(config);
+```
+
+#### 7.5.4 注意事项
+
+1. **热词内容**：热词应该是连续的无空格文本，如"高血压糖尿病"而非"高血压 糖尿病"
+2. **热词长度**：建议单个热词不超过 20 个字符，总热词内容不超过 2000 字符
+3. **配置生效**：修改 `hotwords.json` 后需要重启 WebProxy 服务
+4. **无效热词 ID**：如果指定的 `hotwordId` 不存在，服务会记录警告并继续使用空热词进行识别
+
 ---
 
 ## 8. 错误处理
