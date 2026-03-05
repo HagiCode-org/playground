@@ -1,0 +1,37 @@
+{
+  "hotwords": [
+    {
+      "id": "medical",
+      "name": "Medical Terms",
+      "description": "Common medical terms for healthcare applications",
+      "contexts": [
+        "高血压糖尿病冠心病",
+        "肺炎支气管炎肺结核",
+        "阿司匹林布洛芬对乙酰氨基酚",
+        "血常规尿常规肝功能肾功能"
+      ]
+    },
+    {
+      "id": "tech",
+      "name": "Technology Terms",
+      "description": "Common technology and software terms",
+      "contexts": [
+        "人工智能机器学习深度学习",
+        "云计算大数据物联网",
+        "区块链比特币以太坊",
+        "PythonJavaScriptJava"
+      ]
+    },
+    {
+      "id": "finance",
+      "name": "Financial Terms",
+      "description": "Common financial and banking terms",
+      "contexts": [
+        "股票债券基金期货",
+        "人民币美元欧元英镑",
+        "涨停跌停止损止盈",
+        "开户销户转账汇款"
+      ]
+    }
+  ]
+}

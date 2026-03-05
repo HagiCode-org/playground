@@ -28,6 +28,8 @@ builder.Host.UseSerilog();
 builder.Services.AddSingleton<DoubaoSessionManager>();
 builder.Services.AddSingleton<IDoubaoSessionManager>(sp => sp.GetRequiredService<DoubaoSessionManager>());
 builder.Services.AddSingleton<DoubaoWebSocketHandler>();
+builder.Services.AddSingleton<HotwordService>();
+builder.Services.AddSingleton<IHotwordService>(sp => sp.GetRequiredService<HotwordService>());
 
 var app = builder.Build();
 
@@ -168,10 +170,94 @@ app.Map("/ws", async context =>
                                     try
                                     {
                                         Log.Information("StartRecognition command received for session {SessionId}", session.SessionId);
+
+                                        // Parse hotword parameters from control message
+                                        string? hotwordId = null;
+                                        List<string>? customHotwordContexts = null;
+                                        string? boostingTableId = null;
+
+                                        if (message?.RootElement.TryGetProperty("payload", out var payload) == true &&
+                                            payload.TryGetProperty("parameters", out var parameters))
+                                        {
+                                            // Check for custom hotword contexts (direct text input)
+                                            if (parameters.TryGetProperty("hotwordContexts", out var contextsElement) &&
+                                                contextsElement.ValueKind == System.Text.Json.JsonValueKind.Array)
+                                            {
+                                                customHotwordContexts = new List<string>();
+                                                foreach (var item in contextsElement.EnumerateArray())
+                                                {
+                                                    var text = item.GetString();
+                                                    if (!string.IsNullOrEmpty(text))
+                                                    {
+                                                        customHotwordContexts.Add(text);
+                                                    }
+                                                }
+                                            }
+                                            // Check for predefined hotword ID
+                                            else if (parameters.TryGetProperty("hotwordId", out var hotwordIdElement))
+                                            {
+                                                hotwordId = hotwordIdElement.GetString();
+                                            }
+
+                                            // Parse boosting_table_id
+                                            if (parameters.TryGetProperty("boosting_table_id", out var btIdElement))
+                                                boostingTableId = btIdElement.GetString();
+                                        }
+
+                                        // Get hotword service and configure hotword contexts
+                                        var hotwordService = app.Services.GetRequiredService<IHotwordService>();
+                                        List<string> hotwordContexts = new();
+
+                                        if (customHotwordContexts != null && customHotwordContexts.Count > 0)
+                                        {
+                                            // Use custom hotword contexts directly from frontend
+                                            hotwordContexts = customHotwordContexts;
+                                            Log.Information("Using custom hotword contexts: {Count} items", hotwordContexts.Count);
+                                        }
+                                        else if (!string.IsNullOrEmpty(hotwordId))
+                                        {
+                                            // Load hotword contexts from configuration by ID
+                                            Log.Information("Hotword ID received: {HotwordId}", hotwordId);
+                                            hotwordContexts = hotwordService.GetHotwordContexts(hotwordId);
+
+                                            if (hotwordContexts.Count > 0)
+                                            {
+                                                Log.Information("Loaded {Count} hotword contexts for ID '{HotwordId}'",
+                                                    hotwordContexts.Count, hotwordId);
+                                            }
+                                            else
+                                            {
+                                                Log.Warning("Hotword ID '{HotwordId}' not found in configuration, proceeding without hotwords",
+                                                    hotwordId);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            Log.Debug("No hotword configuration provided");
+                                        }
+
                                         Log.Information("Creating DoubaoVoiceClient with config: AppId={AppId}, Did={Did}",
                                             clientConfig.AppId, clientConfig.Did);
 
                                         var voiceConfig = clientConfig.ToDoubaoVoiceConfig();
+
+                                        // Set hotword contexts if available
+                                        if (hotwordContexts.Count > 0)
+                                        {
+                                            voiceConfig.HotwordContexts = hotwordContexts;
+                                            Log.Debug("Hotword contexts configured: {Contexts}",
+                                                string.Join(", ", hotwordContexts));
+                                        }
+
+                                        // Set boosting table ID
+                                        if (!string.IsNullOrEmpty(boostingTableId))
+                                            voiceConfig.BoostingTableId = boostingTableId;
+
+                                        if (!string.IsNullOrEmpty(boostingTableId))
+                                        {
+                                            Log.Information("Corpus boosting_table_id configured: {TableId}", boostingTableId);
+                                        }
+
                                         Log.Debug("DoubaoVoiceConfig created: ServiceUrl={ServiceUrl}, ResourceId={ResourceId}",
                                             voiceConfig.ServiceUrl, voiceConfig.ResourceId);
 
