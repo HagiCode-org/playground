@@ -446,7 +446,8 @@ public class DoubaoVoiceClient : IDisposable
 
     private string BuildFullClientRequestPayload()
     {
-        var request = new
+        // Build base request object
+        var requestObj = new
         {
             user = new
             {
@@ -475,12 +476,97 @@ public class DoubaoVoiceClient : IDisposable
             }
         };
 
-        var options = new JsonSerializerOptions
+        // Use LINQ to build the final object dynamically based on whether HotwordContexts is configured
+        var requestJson = System.Text.Json.JsonSerializer.Serialize(requestObj, new System.Text.Json.JsonSerializerOptions
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase
+        });
 
-        return JsonSerializer.Serialize(request, options);
+        // Parse the JSON and add corpus.context if hotword contexts are configured
+        using var document = System.Text.Json.JsonDocument.Parse(requestJson);
+        var root = document.RootElement;
+
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream);
+
+        writer.WriteStartObject();
+
+        // Write user
+        writer.WritePropertyName("user");
+        writer.WriteStartObject();
+        if (root.TryGetProperty("user", out var user))
+        {
+            foreach (var prop in user.EnumerateObject())
+            {
+                writer.WritePropertyName(prop.Name);
+                prop.Value.WriteTo(writer);
+            }
+        }
+        writer.WriteEndObject();
+
+        // Write audio
+        writer.WritePropertyName("audio");
+        writer.WriteStartObject();
+        if (root.TryGetProperty("audio", out var audio))
+        {
+            foreach (var prop in audio.EnumerateObject())
+            {
+                writer.WritePropertyName(prop.Name);
+                prop.Value.WriteTo(writer);
+            }
+        }
+        writer.WriteEndObject();
+
+        // Write request
+        writer.WritePropertyName("request");
+        writer.WriteStartObject();
+        if (root.TryGetProperty("request", out var req))
+        {
+            foreach (var prop in req.EnumerateObject())
+            {
+                writer.WritePropertyName(prop.Name);
+                prop.Value.WriteTo(writer);
+            }
+        }
+
+        // Add corpus if any corpus-related properties are configured
+        bool hasCorpus = (_config.HotwordContexts != null && _config.HotwordContexts.Count > 0)
+            || !string.IsNullOrEmpty(_config.BoostingTableId);
+
+        if (hasCorpus)
+        {
+            writer.WritePropertyName("corpus");
+            writer.WriteStartObject();
+
+            // Add context if HotwordContexts is configured
+            if (_config.HotwordContexts != null && _config.HotwordContexts.Count > 0)
+            {
+                var contextData = _config.HotwordContexts.Select(h => new { text = h }).ToList();
+                var contextObj = new
+                {
+                    context_type = "dialog_ctx",
+                    context_data = contextData
+                };
+                var contextJson = System.Text.Json.JsonSerializer.Serialize(contextObj);
+                writer.WritePropertyName("context");
+                writer.WriteStringValue(contextJson);
+            }
+
+            // Add boosting table ID
+            if (!string.IsNullOrEmpty(_config.BoostingTableId))
+            {
+                writer.WritePropertyName("boosting_table_id");
+                writer.WriteStringValue(_config.BoostingTableId);
+            }
+
+            writer.WriteEndObject();
+        }
+
+        writer.WriteEndObject(); // end request
+        writer.WriteEndObject();
+
+        writer.Flush();
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
     }
 
     // Event notification methods

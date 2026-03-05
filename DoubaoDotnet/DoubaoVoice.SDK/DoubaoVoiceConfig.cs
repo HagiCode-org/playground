@@ -107,6 +107,17 @@ public class DoubaoVoiceConfig
     public string AppVersion { get; set; } = "1.0.0";
 
     /// <summary>
+    /// Hotword contexts for improving recognition accuracy
+    /// Each string represents a hotword context that will be passed to the API
+    /// </summary>
+    public List<string> HotwordContexts { get; set; } = new();
+
+    /// <summary>
+    /// Boosting table ID from self-learning platform
+    /// </summary>
+    public string? BoostingTableId { get; set; }
+
+    /// <summary>
     /// Validates the configuration
     /// </summary>
     public void Validate()
