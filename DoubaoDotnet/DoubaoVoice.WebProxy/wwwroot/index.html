@@ -360,6 +360,35 @@
             </button>
         </div>
 
+        <!-- Hotword Selection -->
+        <div class="config-section" style="margin-top: 20px;">
+            <h2>🔥 热词配置（可选）</h2>
+            <div class="form-group">
+                <label>选择热词表（预设）</label>
+                <select id="hotwordSelect" style="width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px;">
+                    <option value="">不使用热词</option>
+                    <option value="medical">医疗术语 (medical)</option>
+                    <option value="tech">科技术语 (tech)</option>
+                    <option value="finance">金融术语 (finance)</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-top: 15px;">
+                <label>或输入自定义热词（直接传递到 API）</label>
+                <input type="text" id="customHotword" placeholder="例如：高血压糖尿病冠心病（多个用逗号分隔）" style="width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px;">
+                <p style="font-size: 12px; color: #666; margin-top: 8px;">
+                    输入热词文本后会直接传递给豆包 API，与上方选择器二选一
+                </p>
+            </div>
+            <!-- 自学习平台词表配置 -->
+            <div class="form-group" style="margin-top: 15px; padding-top: 15px; border-top: 1px dashed #ddd;">
+                <label>或使用自学习平台词表 ID（boosting_table_id）</label>
+                <input type="text" id="boostingTableId" placeholder="boosting_table_id" style="width: 100%; padding: 10px 12px; border: 1px solid #e0e0e0; border-radius: 6px; font-size: 14px;">
+                <p style="font-size: 12px; color: #666; margin-top: 8px;">
+                    输入自学习平台的热词词表 ID
+                </p>
+            </div>
+        </div>
+
         <h2>📝 识别结果</h2>
         <div class="result-area">
             <div id="resultText" class="result-text result-placeholder">配置保存后，点击"连接"即可开始使用...</div>
@@ -712,6 +741,33 @@
                 return;
             }
 
+            // 获取选中的热词ID 或自定义热词
+            const hotwordSelect = document.getElementById('hotwordSelect');
+            const customHotwordInput = document.getElementById('customHotword');
+            const boostingTableIdInput = document.getElementById('boostingTableId');
+
+            const hotwordId = hotwordSelect.value;
+            const customHotword = customHotwordInput.value.trim();
+            const boostingTableId = boostingTableIdInput.value.trim();
+
+            const parameters = {};
+
+            if (customHotword) {
+                // 优先使用自定义热词（直接传递热词文本）
+                parameters.hotwordContexts = customHotword.split(',').map(s => s.trim()).filter(s => s);
+                log(`使用自定义热词: ${parameters.hotwordContexts.join(', ')}`, 'info');
+            } else if (hotwordId) {
+                // 使用预设热词表 ID
+                parameters.hotwordId = hotwordId;
+                log(`使用热词表: ${hotwordId}`, 'info');
+            }
+
+            // 添加自学习平台词表配置
+            if (boostingTableId) {
+                parameters.boosting_table_id = boostingTableId;
+                log(`使用自学习词表 ID: ${boostingTableId}`, 'info');
+            }
+
             console.log('[DEBUG] 准备发送开始识别命令...');
             const message = {
                 type: 'control',
@@ -719,7 +775,7 @@
                 timestamp: new Date().toISOString(),
                 payload: {
                     command: 'StartRecognition',
-                    parameters: {}
+                    parameters: parameters
                 }
             };
 
