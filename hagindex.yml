@@ -2,7 +2,7 @@ version: "1.0"
 name: "playground"
 displayName: "Hagicode Playground 实验场"
 description: "本地测试和实验环境 - .NET/Go 语音识别、LibGit2Sharp 兼容性测试"
-indexedAt: "2026-03-04"
+indexedAt: "2026-03-05"
 generatedBy: "claude-code"
 
 quickRef:
