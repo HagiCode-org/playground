@@ -1,0 +1,50 @@
+# Docker Compose - Multi-Service with Caddy HTTPS Reverse Proxy
+# This configuration demonstrates routing multiple services via path-based routing
+
+services:
+  # Caddy reverse proxy with automatic HTTPS
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy-proxy-multiservice
+    ports:
+      - "45000:45000"  # HTTP port
+      - "45443:45443"  # HTTPS port
+    volumes:
+      - ./Caddyfile.multiservice:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    network_mode: host
+    restart: unless-stopped
+
+  # Backend Service 1 (Node.js API)
+  api-service:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: api-service
+    environment:
+      - NODE_ENV=development
+      - PORT=45001
+      - SERVICE_NAME=api
+    network_mode: host
+    restart: unless-stopped
+    labels:
+      - "caddy.service=api"
+
+  # Backend Service 2 (Another example service)
+  web-service:
+    image: nginx:alpine
+    container_name: web-service
+    volumes:
+      - ./backend-html:/usr/share/nginx/html:ro
+    network_mode: host
+    restart: unless-stopped
+    labels:
+      - "caddy.service=web"
+
+# Persistent volume for Caddy certificates and data
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local

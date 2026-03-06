@@ -1,0 +1,11 @@
+{
+  "name": "docker-local-https-backend",
+  "version": "1.0.0",
+  "description": "Example backend service for Docker local HTTPS proxy",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": ["docker", "https", "local-dev", "caddy"],
+  "license": "MIT"
+}

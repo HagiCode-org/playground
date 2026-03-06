@@ -1,0 +1,31 @@
+# Caddyfile - Custom Domain Example
+#
+# This configuration shows how to use custom domains with Caddy.
+# Uncomment and modify as needed for your local development.
+
+# Example 1: Custom local domain
+# Replace "myapp.local" with your desired domain
+# Note: Add "127.0.0.1 myapp.local" to your /etc/hosts file
+#
+# myapp.local:45443 {
+#     reverse_proxy localhost:45001
+#     tls internal
+#     header X-Real-IP {remote}
+#     header X-Forwarded-For {remote}
+#     header X-Forwarded-Proto {scheme}
+# }
+
+# Example 2: Multiple domains (uncomment to enable)
+# another-app.local:45443 {
+#     reverse_proxy localhost:45002
+#     tls internal
+# }
+
+# Example 3: Wildcard certificate (requires DNS configuration)
+# *.local:45443 {
+#     tls internal
+#     @api path /api/*
+#     @app path /*
+#     reverse_proxy @api localhost:45002
+#     reverse_proxy @app localhost:45001
+# }

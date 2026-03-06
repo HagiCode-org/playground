@@ -1,0 +1,33 @@
+# Caddyfile - Local HTTPS Reverse Proxy Configuration
+#
+# This configuration provides automatic HTTPS for local development.
+# Caddy will automatically generate self-signed certificates.
+
+# Primary domain - localhost and local IP
+localhost:45443, 192.168.3.105:45443 {
+    # Reverse proxy to backend service running on port 45001
+    reverse_proxy localhost:45001
+
+    # Use internal (self-signed) TLS for local development
+    tls internal
+
+    # Add proxy headers for proper forwarding
+    header X-Real-IP {remote}
+    header X-Forwarded-For {remote}
+    header X-Forwarded-Proto {scheme}
+    header X-Forwarded-Host {host}
+
+    # Log requests for debugging
+    log {
+        output file /var/log/caddy/access.log
+    }
+
+    # Optional: Enable HTTP/2 for better performance
+    encode zstd gzip
+}
+
+# HTTP to HTTPS redirect (port 45000)
+http://localhost:45000, http://192.168.3.105:45000 {
+    # Redirect all HTTP requests to HTTPS
+    respond * https://192.168.3.105:45443{uri} 301
+}

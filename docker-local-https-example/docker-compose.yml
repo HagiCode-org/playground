@@ -1,0 +1,46 @@
+# Docker Compose with Caddy HTTPS Reverse Proxy
+# This configuration provides local HTTPS development environment
+
+services:
+  # Caddy reverse proxy with automatic HTTPS
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy-proxy
+    ports:
+      - "45000:45000"  # HTTP port
+      - "45443:45443"  # HTTPS port
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      - CADDY_HOST_LOCALHOST=true
+    network_mode: host
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:45000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Example backend service (Node.js)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend-service
+    environment:
+      - NODE_ENV=development
+      - PORT=45001
+    network_mode: host
+    restart: unless-stopped
+    depends_on:
+      - caddy
+
+# Persistent volume for Caddy certificates and data
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local

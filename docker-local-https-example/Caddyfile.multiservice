@@ -1,0 +1,31 @@
+# Caddyfile - Multi-Service Path Routing
+#
+# This configuration routes different paths to different backend services.
+
+localhost:45443 {
+    # Route /api/* to the API service (port 45001)
+    @api path /api/*
+    reverse_proxy @api localhost:45001
+
+    # Route /* (everything else) to the web service (port 45002)
+    @web path /*
+    reverse_proxy @web localhost:45002
+
+    # Use internal (self-signed) TLS for local development
+    tls internal
+
+    # Add proxy headers for proper forwarding
+    header X-Real-IP {remote}
+    header X-Forwarded-For {remote}
+    header X-Forwarded-Proto {scheme}
+    header X-Forwarded-Host {host}
+
+    # Enable compression
+    encode zstd gzip
+}
+
+# HTTP to HTTPS redirect (port 45000)
+http://localhost:45000 {
+    # Redirect all HTTP requests to HTTPS
+    respond * https://localhost:45443{uri} 301
+}
