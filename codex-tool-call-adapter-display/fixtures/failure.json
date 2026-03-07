@@ -1,0 +1,36 @@
+{
+  "name": "failure",
+  "events": [
+    {"type": "thread.started", "thread_id": "thread-failure"},
+    {"type": "turn.started"},
+    {
+      "type": "item.started",
+      "item": {
+        "id": "cmd-fail-1",
+        "type": "command_execution",
+        "command": "cat missing.txt",
+        "aggregated_output": "",
+        "exit_code": null,
+        "status": "running"
+      }
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "cmd-fail-1",
+        "type": "command_execution",
+        "command": "cat missing.txt",
+        "aggregated_output": "cat: missing.txt: No such file or directory",
+        "exit_code": 1,
+        "status": "failed"
+      }
+    },
+    {"type": "turn.failed", "error": {"message": "command returned non-zero exit code"}}
+  ],
+  "expected": {
+    "toolCallId": "cmd-fail-1",
+    "statuses": ["running", "failed"],
+    "terminal": "failed",
+    "errorSummaryContains": "No such file"
+  }
+}

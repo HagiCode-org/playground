@@ -1,0 +1,25 @@
+{
+  "name": "timeout",
+  "events": [
+    {"type": "thread.started", "thread_id": "thread-timeout"},
+    {"type": "turn.started"},
+    {
+      "type": "item.started",
+      "item": {
+        "id": "cmd-timeout-1",
+        "type": "command_execution",
+        "command": "sleep 300",
+        "aggregated_output": "",
+        "exit_code": null,
+        "status": "running"
+      }
+    },
+    {"type": "turn.failed", "error": {"message": "network timeout after 60s"}}
+  ],
+  "expected": {
+    "toolCallId": "cmd-timeout-1",
+    "statuses": ["running", "failed"],
+    "terminal": "failed",
+    "errorSummaryContains": "timeout"
+  }
+}

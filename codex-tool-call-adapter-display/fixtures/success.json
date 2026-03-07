@@ -1,0 +1,39 @@
+{
+  "name": "success",
+  "events": [
+    {"type": "thread.started", "thread_id": "thread-success"},
+    {"type": "turn.started"},
+    {
+      "type": "item.started",
+      "item": {
+        "id": "cmd-success-1",
+        "type": "command_execution",
+        "command": "ls -la",
+        "aggregated_output": "",
+        "exit_code": null,
+        "status": "running"
+      }
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "cmd-success-1",
+        "type": "command_execution",
+        "command": "ls -la",
+        "aggregated_output": "total 3\n-rw-r--r-- file.txt",
+        "exit_code": 0,
+        "status": "completed"
+      }
+    },
+    {
+      "type": "turn.completed",
+      "usage": {"input_tokens": 16, "cached_input_tokens": 2, "output_tokens": 28}
+    }
+  ],
+  "expected": {
+    "toolCallId": "cmd-success-1",
+    "statuses": ["running", "completed"],
+    "terminal": "completed",
+    "resultSummaryContains": "total 3"
+  }
+}

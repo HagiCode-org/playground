@@ -1,0 +1,39 @@
+{
+  "name": "empty-result",
+  "events": [
+    {"type": "thread.started", "thread_id": "thread-empty"},
+    {"type": "turn.started"},
+    {
+      "type": "item.started",
+      "item": {
+        "id": "cmd-empty-1",
+        "type": "command_execution",
+        "command": "true",
+        "aggregated_output": "",
+        "exit_code": null,
+        "status": "running"
+      }
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "cmd-empty-1",
+        "type": "command_execution",
+        "command": "true",
+        "aggregated_output": "",
+        "exit_code": 0,
+        "status": "completed"
+      }
+    },
+    {
+      "type": "turn.completed",
+      "usage": {"input_tokens": 8, "cached_input_tokens": 0, "output_tokens": 3}
+    }
+  ],
+  "expected": {
+    "toolCallId": "cmd-empty-1",
+    "statuses": ["running", "completed"],
+    "terminal": "completed",
+    "resultSummaryContains": ""
+  }
+}

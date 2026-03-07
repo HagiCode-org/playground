@@ -1,0 +1,39 @@
+{
+  "name": "missing-id",
+  "events": [
+    {"type": "thread.started", "thread_id": "thread-missing-id"},
+    {"type": "turn.started"},
+    {
+      "type": "item.started",
+      "item": {
+        "id": "",
+        "type": "command_execution",
+        "command": "pwd",
+        "aggregated_output": "",
+        "exit_code": null,
+        "status": "running"
+      }
+    },
+    {
+      "type": "item.completed",
+      "item": {
+        "id": "",
+        "type": "command_execution",
+        "command": "pwd",
+        "aggregated_output": "/workspace",
+        "exit_code": 0,
+        "status": "completed"
+      }
+    },
+    {
+      "type": "turn.completed",
+      "usage": {"input_tokens": 8, "cached_input_tokens": 0, "output_tokens": 4}
+    }
+  ],
+  "expected": {
+    "toolCallIdPrefix": "codex-turn-",
+    "statuses": ["running", "completed"],
+    "terminal": "completed",
+    "resultSummaryContains": "/workspace"
+  }
+}
