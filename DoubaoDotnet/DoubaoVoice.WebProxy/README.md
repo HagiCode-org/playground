@@ -82,6 +82,8 @@ DoubaoProxy:
 | `EnablePunctuation` | Enable punctuation | `true` |
 | `EnableDDC` | Enable domain adaptation | `true` |
 | `ShowUtterances` | Show utterance details | `true` |
+| `EnableNonstream` | Enable streaming + non-stream second-pass recognition | `false` |
+| `EndWindowSize` | VAD endpoint window in milliseconds (effective when `EnableNonstream=true`) | `800` (200-5000) |
 | `BufferSize` | Max buffered audio segments | `10` |
 | `BufferTimeoutMs` | Buffer timeout in milliseconds | `5000` |
 | `ConfidenceThreshold` | Minimum confidence for results | `0.5` |
@@ -91,6 +93,19 @@ DoubaoProxy:
 ### WebSocket Endpoint
 
 Connect to: `ws://localhost:5000/ws`
+
+### Query Parameters (Second-pass Recognition Experiment)
+
+| Parameter | Type | Required | Default | Notes |
+|-----------|------|----------|---------|-------|
+| `enableNonstream` | bool | No | `false` | Enables streaming + non-stream second-pass mode |
+| `endWindowSize` | int | No | `800` | Valid range `200-5000` ms, only used when `enableNonstream=true` |
+
+Example:
+
+```
+ws://localhost:5000/ws?appId=xxx&accessToken=yyy&enableNonstream=true&endWindowSize=800
+```
 
 ### Message Protocol
 
@@ -196,6 +211,7 @@ Send audio data as binary WebSocket messages. The audio should be:
     "confidence": 0.95,
     "duration": 2000,
     "isFinal": false,
+    "definite": false,
     "utterances": [
       {
         "text": "text",
@@ -209,6 +225,19 @@ Send audio data as binary WebSocket messages. The audio should be:
   }
 }
 ```
+
+### `definite` Semantics
+
+- `definite=false`: streaming interim result, prioritizes low latency ("快")
+- `definite=true`: non-stream second-pass result for an utterance, prioritizes accuracy ("准")
+- When second-pass mode is disabled (`enableNonstream=false`), returned results are expected to stay `definite=false`.
+
+### Expected Second-pass Behavior
+
+1. Enable `enableNonstream=true` and start recognition.
+2. Streaming text appears immediately with `definite=false`.
+3. After VAD detects pause (`endWindowSize`, default 800ms), the same utterance is re-recognized by non-stream mode.
+4. Frontend receives replacement utterance with `definite=true` and renders it as final text.
 
 #### Error Message
 
