@@ -26,6 +26,11 @@ public class RecognitionResultDto
     public bool IsFinal { get; set; }
 
     /// <summary>
+    /// Indicates whether this result is a definite utterance from non-stream re-recognition
+    /// </summary>
+    public bool Definite { get; set; }
+
+    /// <summary>
     /// List of utterances
     /// </summary>
     public List<UtteranceDto> Utterances { get; set; } = new();

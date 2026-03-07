@@ -95,7 +95,13 @@ public class ClientConfigDto
     /// Enable non-stream mode
     /// </summary>
     [JsonPropertyName("enableNonstream")]
-    public bool? EnableNonstream { get; set; }
+    public bool EnableNonstream { get; set; } = false;
+
+    /// <summary>
+    /// VAD end window size in milliseconds
+    /// </summary>
+    [JsonPropertyName("endWindowSize")]
+    public int EndWindowSize { get; set; } = 800;
 
     /// <summary>
     /// Audio buffer size (max segments)
@@ -143,6 +149,9 @@ public class ClientConfigDto
 
         if (string.IsNullOrEmpty(AccessToken))
             throw new ArgumentException("AccessToken is required", nameof(AccessToken));
+
+        if (EndWindowSize < 200 || EndWindowSize > 5000)
+            throw new ArgumentException("EndWindowSize must be between 200 and 5000 milliseconds", nameof(EndWindowSize));
     }
 
     /// <summary>
@@ -170,7 +179,8 @@ public class ClientConfigDto
             EnablePunctuation = EnablePunctuation ?? true,
             EnableDDC = EnableDDC ?? true,
             ShowUtterances = ShowUtterances ?? true,
-            EnableNonstream = EnableNonstream ?? false,
+            EnableNonstream = EnableNonstream,
+            EndWindowSize = EndWindowSize,
             Uid = Uid ?? "demo_uid",
             Did = deviceId,
             Platform = "dotnet",

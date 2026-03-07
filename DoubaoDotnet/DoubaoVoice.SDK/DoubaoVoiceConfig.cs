@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DoubaoVoice.SDK;
 
 /// <summary>
@@ -79,7 +81,14 @@ public class DoubaoVoiceConfig
     /// <summary>
     /// Enable non-stream mode
     /// </summary>
+    [JsonPropertyName("enable_nonstream")]
     public bool EnableNonstream { get; set; } = false;
+
+    /// <summary>
+    /// VAD end window size in milliseconds (effective when non-stream mode is enabled)
+    /// </summary>
+    [JsonPropertyName("end_window_size")]
+    public int EndWindowSize { get; set; } = 800;
 
     /// <summary>
     /// User ID for tracking
@@ -139,5 +148,8 @@ public class DoubaoVoiceConfig
 
         if (Channels <= 0)
             throw new ArgumentException("Channels must be greater than 0", nameof(Channels));
+
+        if (EndWindowSize < 200 || EndWindowSize > 5000)
+            throw new ArgumentException("EndWindowSize must be between 200 and 5000 milliseconds", nameof(EndWindowSize));
     }
 }

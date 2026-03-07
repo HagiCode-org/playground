@@ -101,6 +101,31 @@
             gap: 10px;
             margin-top: 5px;
         }
+        .form-group .config-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .form-group .config-toggle input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+        .config-hint {
+            margin-top: 6px;
+            font-size: 12px;
+            color: #666;
+        }
+        .validation-error {
+            margin-top: 10px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            background: #fff2f2;
+            color: #b42318;
+            border: 1px solid #fecdca;
+            font-size: 13px;
+            display: none;
+        }
         .form-group .password-toggle input[type="checkbox"] {
             width: auto;
         }
@@ -171,6 +196,13 @@
             margin-bottom: 10px;
             line-height: 1.6;
         }
+        .result-text.result-temporary {
+            color: #7a7a7a;
+        }
+        .result-text.result-definite {
+            color: #1f1f1f;
+            font-weight: 600;
+        }
         .result-placeholder {
             color: #999;
             font-style: italic;
@@ -203,6 +235,15 @@
             background: rgba(255,255,255,0.8);
             border-radius: 6px;
             border-left: 4px solid #667eea;
+        }
+        .utterance.temporary {
+            border-left-color: #adb5bd;
+            color: #6c757d;
+        }
+        .utterance.definite {
+            border-left-color: #198754;
+            color: #1f1f1f;
+            background: rgba(236, 253, 243, 0.95);
         }
         .utterance-time {
             font-size: 11px;
@@ -316,6 +357,19 @@
                     <label>声道数</label>
                     <input type="text" id="channels" value="1" placeholder="声道数，默认1">
                 </div>
+                <div class="form-group">
+                    <label for="enableNonstream">二遍识别（enable_nonstream）</label>
+                    <div class="config-toggle">
+                        <input type="checkbox" id="enableNonstream">
+                        <label for="enableNonstream">开启流式 + 非流式二遍识别</label>
+                    </div>
+                    <div class="config-hint">开启后会在 VAD 判停后触发 nostream 重识别，最终结果使用 definite=true 标记。</div>
+                </div>
+                <div class="form-group">
+                    <label for="endWindowSize">VAD 判停窗口 (ms)</label>
+                    <input type="text" id="endWindowSize" value="800" placeholder="200-5000，默认 800" disabled>
+                    <div class="config-hint">仅在开启二遍识别时生效，范围 200-5000ms。</div>
+                </div>
                 <div class="form-group form-actions">
                     <button id="btnSaveConfig" onclick="saveConfig()">
                         <span>💾</span> 保存配置
@@ -325,6 +379,7 @@
                     </button>
                 </div>
             </div>
+            <div id="configValidationError" class="validation-error" role="alert"></div>
         </div>
 
         <div class="connection-info">
@@ -413,11 +468,33 @@
         let isRecognizing = false;
         let isPaused = false;
         let utteranceCount = 0;
+        const DEFAULT_END_WINDOW_SIZE = 800;
+        const END_WINDOW_MIN = 200;
+        const END_WINDOW_MAX = 5000;
 
         // Toggle password visibility
         document.getElementById('showToken').addEventListener('change', function() {
             const tokenInput = document.getElementById('accessToken');
             tokenInput.type = this.checked ? 'text' : 'password';
+        });
+
+        document.getElementById('enableNonstream').addEventListener('change', function() {
+            toggleEndWindowInput(this.checked);
+        });
+
+        document.getElementById('endWindowSize').addEventListener('input', function() {
+            const enableNonstream = document.getElementById('enableNonstream').checked;
+            if (!enableNonstream) {
+                clearValidationError();
+                return;
+            }
+
+            const value = parseInt(this.value, 10);
+            if (!Number.isFinite(value) || value < END_WINDOW_MIN || value > END_WINDOW_MAX) {
+                showValidationError(`endWindowSize 必须在 ${END_WINDOW_MIN}-${END_WINDOW_MAX}ms 之间`);
+                return;
+            }
+            clearValidationError();
         });
 
         function log(message, type = 'info') {
@@ -463,29 +540,28 @@
             audioLevel.textContent = `${Math.round(level)}%`;
         }
 
-        // 保存配置到 localStorage
-        function saveConfig() {
-            const config = {
-                appId: document.getElementById('appId').value.trim(),
-                accessToken: document.getElementById('accessToken').value.trim(),
-                serviceUrl: document.getElementById('serviceUrl').value.trim(),
-                resourceId: document.getElementById('resourceId').value.trim(),
-                sampleRate: parseInt(document.getElementById('sampleRate').value) || 16000,
-                bitsPerSample: parseInt(document.getElementById('bitsPerSample').value) || 16,
-                channels: parseInt(document.getElementById('channels').value) || 1
-            };
+        function showValidationError(message) {
+            const errorDiv = document.getElementById('configValidationError');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
 
-            if (!config.appId || !config.accessToken) {
-                log('App ID 和 Access Token 是必填项', 'error');
-                return;
+        function clearValidationError() {
+            const errorDiv = document.getElementById('configValidationError');
+            errorDiv.textContent = '';
+            errorDiv.style.display = 'none';
+        }
+
+        function toggleEndWindowInput(enableNonstream) {
+            const endWindowInput = document.getElementById('endWindowSize');
+            endWindowInput.disabled = !enableNonstream;
+            if (!enableNonstream) {
+                endWindowInput.value = DEFAULT_END_WINDOW_SIZE.toString();
             }
+            clearValidationError();
+        }
 
-            localStorage.setItem('doubaoConfig', JSON.stringify(config));
-            log('配置已保存到本地存储', 'success');
-
-            // 更新 WebSocket URL 为带配置的 URL
-            const wsUrlInput = document.getElementById('wsUrl');
-            const baseUrl = wsUrlInput.value.split('?')[0];
+        function buildConfiguredWsUrl(baseUrl, config) {
             const configParams = new URLSearchParams();
             configParams.append('appId', config.appId);
             configParams.append('accessToken', config.accessToken);
@@ -494,8 +570,59 @@
             configParams.append('sampleRate', config.sampleRate.toString());
             configParams.append('bitsPerSample', config.bitsPerSample.toString());
             configParams.append('channels', config.channels.toString());
+            configParams.append('enableNonstream', config.enableNonstream.toString());
+            if (config.enableNonstream) {
+                configParams.append('endWindowSize', config.endWindowSize.toString());
+            }
+            return `${baseUrl}?${configParams.toString()}`;
+        }
 
-            const fullUrl = `${baseUrl}?${configParams.toString()}`;
+        function getValidatedConfig(showError = true) {
+            const config = {
+                appId: document.getElementById('appId').value.trim(),
+                accessToken: document.getElementById('accessToken').value.trim(),
+                serviceUrl: document.getElementById('serviceUrl').value.trim(),
+                resourceId: document.getElementById('resourceId').value.trim(),
+                sampleRate: parseInt(document.getElementById('sampleRate').value, 10) || 16000,
+                bitsPerSample: parseInt(document.getElementById('bitsPerSample').value, 10) || 16,
+                channels: parseInt(document.getElementById('channels').value, 10) || 1,
+                enableNonstream: document.getElementById('enableNonstream').checked,
+                endWindowSize: parseInt(document.getElementById('endWindowSize').value, 10) || DEFAULT_END_WINDOW_SIZE
+            };
+
+            if (!config.appId || !config.accessToken) {
+                if (showError) {
+                    showValidationError('App ID 和 Access Token 是必填项');
+                }
+                return null;
+            }
+
+            if (config.enableNonstream &&
+                (config.endWindowSize < END_WINDOW_MIN || config.endWindowSize > END_WINDOW_MAX)) {
+                if (showError) {
+                    showValidationError(`endWindowSize 必须在 ${END_WINDOW_MIN}-${END_WINDOW_MAX}ms 之间`);
+                }
+                return null;
+            }
+
+            clearValidationError();
+            return config;
+        }
+
+        // 保存配置到 localStorage
+        function saveConfig() {
+            const config = getValidatedConfig(true);
+            if (!config) {
+                log('配置校验失败，请检查后重试', 'error');
+                return;
+            }
+
+            localStorage.setItem('doubaoConfig', JSON.stringify(config));
+            log('配置已保存到本地存储', 'success');
+
+            const wsUrlInput = document.getElementById('wsUrl');
+            const baseUrl = wsUrlInput.value.split('?')[0];
+            const fullUrl = buildConfiguredWsUrl(baseUrl, config);
             wsUrlInput.value = fullUrl;
 
             log(`WebSocket URL 已更新为: ${fullUrl}`, 'info');
@@ -505,33 +632,33 @@
         function loadConfig() {
             try {
                 const saved = localStorage.getItem('doubaoConfig');
-                if (saved) {
-                    const config = JSON.parse(saved);
+                if (!saved) {
+                    toggleEndWindowInput(false);
+                    return;
+                }
 
-                    if (config.appId) document.getElementById('appId').value = config.appId;
-                    if (config.accessToken) document.getElementById('accessToken').value = config.accessToken;
-                    if (config.serviceUrl) document.getElementById('serviceUrl').value = config.serviceUrl;
-                    if (config.resourceId) document.getElementById('resourceId').value = config.resourceId;
-                    if (config.sampleRate) document.getElementById('sampleRate').value = config.sampleRate;
-                    if (config.bitsPerSample) document.getElementById('bitsPerSample').value = config.bitsPerSample;
-                    if (config.channels) document.getElementById('channels').value = config.channels;
+                const config = JSON.parse(saved);
 
-                    log('已从本地存储加载配置', 'success');
+                if (config.appId) document.getElementById('appId').value = config.appId;
+                if (config.accessToken) document.getElementById('accessToken').value = config.accessToken;
+                if (config.serviceUrl) document.getElementById('serviceUrl').value = config.serviceUrl;
+                if (config.resourceId) document.getElementById('resourceId').value = config.resourceId;
+                if (config.sampleRate) document.getElementById('sampleRate').value = config.sampleRate;
+                if (config.bitsPerSample) document.getElementById('bitsPerSample').value = config.bitsPerSample;
+                if (config.channels) document.getElementById('channels').value = config.channels;
 
-                    // 更新 WebSocket URL
+                const enableNonstream = Boolean(config.enableNonstream);
+                document.getElementById('enableNonstream').checked = enableNonstream;
+                document.getElementById('endWindowSize').value = (config.endWindowSize || DEFAULT_END_WINDOW_SIZE).toString();
+                toggleEndWindowInput(enableNonstream);
+
+                log('已从本地存储加载配置', 'success');
+
+                const validatedConfig = getValidatedConfig(false);
+                if (validatedConfig) {
                     const wsUrlInput = document.getElementById('wsUrl');
                     const baseUrl = wsUrlInput.value.split('?')[0];
-                    const configParams = new URLSearchParams();
-                    configParams.append('appId', config.appId);
-                    configParams.append('accessToken', config.accessToken);
-                    if (config.serviceUrl) configParams.append('serviceUrl', config.serviceUrl);
-                    if (config.resourceId) configParams.append('resourceId', config.resourceId);
-                    configParams.append('sampleRate', config.sampleRate.toString());
-                    configParams.append('bitsPerSample', config.bitsPerSample.toString());
-                    configParams.append('channels', config.channels.toString());
-
-                    const fullUrl = `${baseUrl}?${configParams.toString()}`;
-                    wsUrlInput.value = fullUrl;
+                    wsUrlInput.value = buildConfiguredWsUrl(baseUrl, validatedConfig);
                 }
             } catch (e) {
                 log('加载本地配置失败: ' + e.message, 'warning');
@@ -548,6 +675,10 @@
             document.getElementById('sampleRate').value = '16000';
             document.getElementById('bitsPerSample').value = '16';
             document.getElementById('channels').value = '1';
+            document.getElementById('enableNonstream').checked = false;
+            document.getElementById('endWindowSize').value = DEFAULT_END_WINDOW_SIZE.toString();
+            toggleEndWindowInput(false);
+            clearValidationError();
 
             // 重置 WebSocket URL
             document.getElementById('wsUrl').value = 'ws://localhost:5000/ws';
@@ -556,12 +687,21 @@
         }
 
         function connect() {
-            const url = document.getElementById('wsUrl').value;
-            if (!url) {
+            const wsUrlInput = document.getElementById('wsUrl');
+            const baseUrl = wsUrlInput.value.split('?')[0];
+            if (!baseUrl) {
                 log('请输入 WebSocket URL', 'error');
                 return;
             }
 
+            const config = getValidatedConfig(true);
+            if (!config) {
+                log('连接前校验失败，请先修正配置', 'error');
+                return;
+            }
+
+            const url = buildConfiguredWsUrl(baseUrl, config);
+            wsUrlInput.value = url;
             log(`正在连接到 ${url}...`, 'info');
             updateStatus('connecting', 'connecting');
 
@@ -689,11 +829,17 @@
         }
 
         function handleResultMessage(message) {
-            const result = message.payload;
+            const result = message.payload || {};
+            const utterances = Array.isArray(result.utterances) ? result.utterances : [];
+            const latestUtterance = utterances.length > 0 ? utterances[utterances.length - 1] : null;
+            const isDefinite = Boolean(
+                (latestUtterance && latestUtterance.definite === true) || result.definite === true
+            );
 
             // 更新结果显示
             const resultDiv = document.getElementById('resultText');
-            resultDiv.classList.remove('result-placeholder');
+            resultDiv.classList.remove('result-placeholder', 'result-temporary', 'result-definite');
+            resultDiv.classList.add(isDefinite ? 'result-definite' : 'result-temporary');
             resultDiv.textContent = result.text || '(无识别结果)';
 
             // 更新元数据
@@ -702,29 +848,39 @@
                 ? `${(result.confidence * 100).toFixed(1)}%`
                 : '--';
             document.getElementById('duration').textContent = result.duration || '--';
-            document.getElementById('finalStatus').textContent = result.isFinal ? '最终' : '临时';
+            document.getElementById('finalStatus').textContent = isDefinite ? '最终(definite=true)' : '临时(definite=false)';
 
             // 处理话语片段
-            if (result.utterances && result.utterances.length > 0) {
+            if (latestUtterance) {
                 const utterancesDiv = document.getElementById('utterances');
                 utteranceCount++;
+                const utteranceKey = `${latestUtterance.startTime}-${latestUtterance.endTime}`;
+                let utteranceEl = utterancesDiv.querySelector(`[data-utterance-key="${utteranceKey}"]`);
+                const utteranceClass = isDefinite ? 'definite' : 'temporary';
 
-                // 只显示最新的话语
-                const utterance = result.utterances[result.utterances.length - 1];
-                const utteranceEl = document.createElement('div');
-                utteranceEl.className = 'utterance';
+                if (!utteranceEl) {
+                    utteranceEl = document.createElement('div');
+                    utteranceEl.setAttribute('data-utterance-key', utteranceKey);
+                    utterancesDiv.appendChild(utteranceEl);
+                }
+
+                utteranceEl.className = `utterance ${utteranceClass}`;
                 utteranceEl.innerHTML = `
-                    <div class="utterance-time">${utterance.startTime}ms - ${utterance.endTime}ms</div>
-                    <div>${escapeHtml(utterance.text)}</div>
+                    <div class="utterance-time">${latestUtterance.startTime}ms - ${latestUtterance.endTime}ms</div>
+                    <div>${escapeHtml(latestUtterance.text)}</div>
                 `;
-                utterancesDiv.appendChild(utteranceEl);
 
                 // 保持最多5条记录
                 while (utterancesDiv.children.length > 5) {
                     utterancesDiv.removeChild(utterancesDiv.firstChild);
                 }
 
-                log(`识别结果: ${result.text} ${result.isFinal ? '(最终)' : '(临时)'}`, result.isFinal ? 'success' : 'info');
+                log(
+                    `识别结果: ${result.text} ${isDefinite ? '(最终/二遍)' : '(临时/流式)'}`,
+                    isDefinite ? 'success' : 'info'
+                );
+            } else {
+                log(`识别结果: ${result.text || '(空)'} ${isDefinite ? '(最终/二遍)' : '(临时/流式)'}`, isDefinite ? 'success' : 'info');
             }
         }
 

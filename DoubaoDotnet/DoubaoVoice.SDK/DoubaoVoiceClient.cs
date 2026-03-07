@@ -472,7 +472,8 @@ public class DoubaoVoiceClient : IDisposable
                 enable_punc = _config.EnablePunctuation,
                 enable_ddc = _config.EnableDDC,
                 show_utterances = _config.ShowUtterances,
-                enable_nonstream = _config.EnableNonstream
+                enable_nonstream = _config.EnableNonstream,
+                end_window_size = _config.EndWindowSize
             }
         };
 

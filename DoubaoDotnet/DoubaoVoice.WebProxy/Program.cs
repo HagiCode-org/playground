@@ -70,6 +70,8 @@ app.Map("/ws", async context =>
         var sampleRate = context.Request.Query["sampleRate"];
         var bitsPerSample = context.Request.Query["bitsPerSample"];
         var channels = context.Request.Query["channels"];
+        var enableNonstream = context.Request.Query["enableNonstream"];
+        var endWindowSize = context.Request.Query["endWindowSize"];
 
         // Validate required parameters
         if (string.IsNullOrEmpty(appId) || string.IsNullOrEmpty(accessToken))
@@ -78,6 +80,37 @@ app.Map("/ws", async context =>
             await context.Response.WriteAsync("Missing required parameters: appId and accessToken must be provided in query string");
             context.Response.StatusCode = 400;
             return;
+        }
+
+        var enableNonstreamValue = false;
+        if (enableNonstream.Count > 0 && !bool.TryParse(enableNonstream.ToString(), out enableNonstreamValue))
+        {
+            Log.Warning("Invalid enableNonstream parameter: {Value}", enableNonstream.ToString());
+            await context.Response.WriteAsync("Invalid parameter: enableNonstream must be true or false");
+            context.Response.StatusCode = 400;
+            return;
+        }
+
+        int? endWindowSizeValue = null;
+        if (endWindowSize.Count > 0)
+        {
+            if (!int.TryParse(endWindowSize.ToString(), out var parsedEndWindowSize))
+            {
+                Log.Warning("Invalid endWindowSize parameter: {Value}", endWindowSize.ToString());
+                await context.Response.WriteAsync("Invalid parameter: endWindowSize must be an integer (200-5000)");
+                context.Response.StatusCode = 400;
+                return;
+            }
+
+            if (parsedEndWindowSize < 200 || parsedEndWindowSize > 5000)
+            {
+                Log.Warning("endWindowSize out of range: {Value}", parsedEndWindowSize);
+                await context.Response.WriteAsync("Invalid parameter: endWindowSize must be between 200 and 5000 milliseconds");
+                context.Response.StatusCode = 400;
+                return;
+            }
+
+            endWindowSizeValue = parsedEndWindowSize;
         }
 
         // Create client config from query parameters
@@ -89,7 +122,9 @@ app.Map("/ws", async context =>
             ResourceId = resourceId.Count > 0 ? resourceId.ToString() : null,
             SampleRate = sampleRate.Count > 0 ? int.Parse(sampleRate.ToString()!) : null,
             BitsPerSample = bitsPerSample.Count > 0 ? int.Parse(bitsPerSample.ToString()!) : null,
-            Channels = channels.Count > 0 ? int.Parse(channels.ToString()!) : null
+            Channels = channels.Count > 0 ? int.Parse(channels.ToString()!) : null,
+            EnableNonstream = enableNonstreamValue,
+            EndWindowSize = endWindowSizeValue ?? 800
         };
 
         try
@@ -111,6 +146,11 @@ app.Map("/ws", async context =>
         Log.Information("  Service URL: {ServiceUrl}", clientConfig.ServiceUrl ?? "default");
         Log.Information("  Resource ID: {ResourceId}", clientConfig.ResourceId ?? "default");
         Log.Information("  Sample Rate: {SampleRate}Hz", clientConfig.SampleRate ?? 16000);
+        Log.Information("  Enable non-stream: {EnableNonstream}", clientConfig.EnableNonstream);
+        if (clientConfig.EnableNonstream)
+        {
+            Log.Information("  VAD end window size: {EndWindowSize}ms", clientConfig.EndWindowSize);
+        }
         Log.Information("  Remote IP: {RemoteIP}", context.Connection.RemoteIpAddress);
         Log.Information("  User Agent: {UserAgent}", context.Request.Headers["User-Agent"].ToString());
 
@@ -276,6 +316,7 @@ app.Map("/ws", async context =>
                                                 Confidence = 1.0f,
                                                 Duration = e.Result.AudioDuration,
                                                 IsFinal = e.IsFinal,
+                                                Definite = e.Result.Utterances.Any(u => u.Definite),
                                                 Utterances = e.Result.Utterances.Select(u => new UtteranceDto
                                                 {
                                                     Text = u.Text,
