@@ -1,0 +1,10 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	logallrefupdates = true
+	worktree = /home/newbe36524/repos/newbe36524/hagicode-mono
+	autocrlf = false
+	longpaths = true
+	symlinks = true
+	fsmonitor = false
