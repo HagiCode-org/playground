@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="CopilotSdk.ConsoleDemo/CopilotSdk.ConsoleDemo.csproj" />
+  <Project Path="CopilotSdk.Tests/CopilotSdk.Tests.csproj" />
+  <Project Path="CopilotSdk/CopilotSdk.csproj" />
+</Solution>
