@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="IFlowSdk.ConsoleDemo/IFlowSdk.ConsoleDemo.csproj" />
+  <Project Path="IFlowSdk.Tests/IFlowSdk.Tests.csproj" />
+  <Project Path="IFlowSdk/IFlowSdk.csproj" />
+</Solution>
