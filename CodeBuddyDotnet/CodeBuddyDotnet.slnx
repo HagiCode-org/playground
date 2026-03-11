@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="CodeBuddySdk.ConsoleDemo/CodeBuddySdk.ConsoleDemo.csproj" />
+  <Project Path="CodeBuddySdk.Tests/CodeBuddySdk.Tests.csproj" />
+  <Project Path="CodeBuddySdk/CodeBuddySdk.csproj" />
+</Solution>
