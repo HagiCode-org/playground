@@ -24,6 +24,9 @@ npm run example:tool-call-display
 
 # 运行 CodeBuddy fixture 示例
 npm run example:codebuddy-dotnet -- --scenario startup-smoke
+
+# 运行 Hermes ACP .NET 实验
+npm run example:hermes-acp-dotnet
 ```
 
 当前根级快捷方式覆盖的首批示例包括：
@@ -31,6 +34,7 @@ npm run example:codebuddy-dotnet -- --scenario startup-smoke
 - `example:codebuddy-dotnet`
 - `example:codex-dotnet`
 - `example:copilot-dotnet`
+- `example:hermes-acp-dotnet`
 - `example:iflow-dotnet`
 - `example:opencode-dotnet`
 - `example:tool-call-display`
