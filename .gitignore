@@ -26,3 +26,7 @@ Thumbs.db
 DoubaoDotnet/DoubaoVoice.WebProxy/logs/
 
 DoubaoDotnet/DoubaoVoice.WebProxy/debug-audio/
+
+HermesAcpDotnet/.dotnet-home/.dotnet/
+
+HermesAcpDotnet/.nuget/
