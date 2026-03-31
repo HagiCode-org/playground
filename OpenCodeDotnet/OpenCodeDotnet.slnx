@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="OpenCodeSdk.ConsoleDemo/OpenCodeSdk.ConsoleDemo.csproj" />
-  <Project Path="OpenCodeSdk.Tests/OpenCodeSdk.Tests.csproj" />
-  <Project Path="OpenCodeSdk/OpenCodeSdk.csproj" />
-</Solution>

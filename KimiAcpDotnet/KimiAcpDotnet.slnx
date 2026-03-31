@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="KimiAcpSdk.ConsoleDemo/KimiAcpSdk.ConsoleDemo.csproj" />
-  <Project Path="KimiAcpSdk.Tests/KimiAcpSdk.Tests.csproj" />
-  <Project Path="KimiAcpSdk/KimiAcpSdk.csproj" />
-</Solution>

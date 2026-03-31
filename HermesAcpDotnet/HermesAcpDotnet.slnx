@@ -1,5 +1,0 @@
-<Solution>
-  <Project Path="HermesAcpSdk.ConsoleDemo/HermesAcpSdk.ConsoleDemo.csproj" />
-  <Project Path="HermesAcpSdk.Tests/HermesAcpSdk.Tests.csproj" />
-  <Project Path="HermesAcpSdk/HermesAcpSdk.csproj" />
-</Solution>
