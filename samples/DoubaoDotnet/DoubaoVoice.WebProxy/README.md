@@ -304,7 +304,7 @@ function sendAudio(audioData) {
 ### Start the Service
 
 ```bash
-cd repos/playground/DoubaoDotnet/DoubaoVoice.WebProxy
+cd samples/DoubaoDotnet/DoubaoVoice.WebProxy
 dotnet run
 ```
 

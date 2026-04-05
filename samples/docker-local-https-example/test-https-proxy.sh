@@ -74,7 +74,7 @@ echo "=== All tests passed! ==="
 ## Running the Tests
 
 ```bash
-cd playground/docker-local-https-example
+cd samples/docker-local-https-example
 
 # Ensure services are running
 docker compose up -d
@@ -114,13 +114,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run Docker Compose
-        run: cd playground/docker-local-https-example && docker compose up -d
+        run: cd samples/docker-local-https-example && docker compose up -d
       - name: Run Integration Tests
         run: |
           sleep 5
-          cd playground/docker-local-https-example
+          cd samples/docker-local-https-example
           ./test-https-proxy.sh
       - name: Cleanup
         if: always()
-        run: cd playground/docker-local-https-example && docker compose down
+        run: cd samples/docker-local-https-example && docker compose down
 ```

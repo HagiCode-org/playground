@@ -6,11 +6,11 @@ on:
       - main
       - master
     paths:
-      - 'GitCompatibilityTest/**'
+      - 'samples/GitCompatibilityTest/**'
       - '.github/workflows/test-arm-macos.yml'
   pull_request:
     paths:
-      - 'GitCompatibilityTest/**'
+      - 'samples/GitCompatibilityTest/**'
       - '.github/workflows/test-arm-macos.yml'
   workflow_dispatch:
 
@@ -32,15 +32,15 @@ jobs:
         run: dotnet --info
 
       - name: Restore dependencies
-        working-directory: ./GitCompatibilityTest
+        working-directory: ./samples/GitCompatibilityTest
         run: dotnet restore
 
       - name: Build project
-        working-directory: ./GitCompatibilityTest
+        working-directory: ./samples/GitCompatibilityTest
         run: dotnet build --configuration Release --no-restore
 
       - name: Run verification program
-        working-directory: ./GitCompatibilityTest
+        working-directory: ./samples/GitCompatibilityTest
         run: dotnet run --configuration Release --no-build
 
       - name: Verify platform

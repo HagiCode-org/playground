@@ -1,6 +1,6 @@
 # IFlowDotnet
 
-C# playground for validating an `iflow-cli-sdk` style integration in `repos/playground`.
+C# playground for validating an `iflow-cli-sdk` style integration in `samples/IFlowDotnet`.
 
 ## Projects
 
@@ -17,7 +17,7 @@ C# playground for validating an `iflow-cli-sdk` style integration in `repos/play
 ## Build
 
 ```bash
-cd repos/playground/IFlowDotnet
+cd samples/IFlowDotnet
 DOTNET_CLI_HOME=/tmp/dotnet-home NUGET_PACKAGES=/tmp/nuget-packages NUGET_HTTP_CACHE_PATH=/tmp/nuget-http-cache dotnet build IFlowDotnet.slnx
 ```
 
@@ -26,14 +26,14 @@ DOTNET_CLI_HOME=/tmp/dotnet-home NUGET_PACKAGES=/tmp/nuget-packages NUGET_HTTP_C
 Unit tests only:
 
 ```bash
-cd repos/playground/IFlowDotnet
+cd samples/IFlowDotnet
 DOTNET_CLI_HOME=/tmp/dotnet-home NUGET_PACKAGES=/tmp/nuget-packages NUGET_HTTP_CACHE_PATH=/tmp/nuget-http-cache dotnet test IFlowDotnet.slnx
 ```
 
 Opt-in integration run:
 
 ```bash
-cd repos/playground/IFlowDotnet
+cd samples/IFlowDotnet
 IFLOW_INTEGRATION=1 DOTNET_CLI_HOME=/tmp/dotnet-home NUGET_PACKAGES=/tmp/nuget-packages NUGET_HTTP_CACHE_PATH=/tmp/nuget-http-cache dotnet test IFlowDotnet.slnx
 ```
 
@@ -42,7 +42,7 @@ IFLOW_INTEGRATION=1 DOTNET_CLI_HOME=/tmp/dotnet-home NUGET_PACKAGES=/tmp/nuget-p
 ## Run the console demo
 
 ```bash
-cd repos/playground/IFlowDotnet
+cd samples/IFlowDotnet
 DOTNET_CLI_HOME=/tmp/dotnet-home NUGET_PACKAGES=/tmp/nuget-packages NUGET_HTTP_CACHE_PATH=/tmp/nuget-http-cache dotnet run --project IFlowSdk.ConsoleDemo/IFlowSdk.ConsoleDemo.csproj
 ```
 

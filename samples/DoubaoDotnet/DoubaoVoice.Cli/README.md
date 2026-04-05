@@ -8,7 +8,7 @@ DoubaoVoice CLI 是一个基于 DoubaoVoice .NET SDK 的控制台应用程序，
 
 ```bash
 git clone <repository-url>
-cd DoubaoDotnet
+cd samples/DoubaoDotnet
 dotnet build -c Release
 ```
 

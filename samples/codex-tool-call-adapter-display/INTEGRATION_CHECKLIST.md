@@ -10,7 +10,7 @@
 
 ## 2) Validate adapter normalization
 - Run:
-  - `node repos/playground/codex-tool-call-adapter-display/validate-tool-events.mjs`
+  - `node samples/codex-tool-call-adapter-display/validate-tool-events.mjs`
 - Expected:
   - All scenarios print `✓`
   - Terminal status only appears once per tool call

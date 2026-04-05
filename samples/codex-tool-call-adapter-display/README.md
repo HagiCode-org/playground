@@ -6,7 +6,7 @@ OpenSpec change `codex-tool-calling-adapter-display`.
 ## Quick Start
 
 ```bash
-node repos/playground/codex-tool-call-adapter-display/validate-tool-events.mjs
+node samples/codex-tool-call-adapter-display/validate-tool-events.mjs
 ```
 
 The script reads all `fixtures/*.json`, normalizes the event stream using the

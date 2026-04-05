@@ -13,7 +13,7 @@
 ### 1. 进入示例目录
 
 ```bash
-cd playground/docker-local-https-example
+cd samples/docker-local-https-example
 ```
 
 ### 2. 启动服务
