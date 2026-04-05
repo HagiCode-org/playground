@@ -1,0 +1,6 @@
+schemaVersion: 1
+type: coderef
+title: hagiplayground
+docsRoot: docs
+reposRoot: repos
+...
