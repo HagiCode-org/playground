@@ -103,13 +103,21 @@ jobs:
       - name: Publish per-runner step summary
         if: always()
         run: |
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## ${{ matrix.os }}"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Compatibility stage: `${{ steps.compatibility.outcome }}`"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Benchmark stage: `${{ steps.benchmark_run.outcome || 'skipped' }}`"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Compatibility artifacts: `${{ steps.paths.outputs.compat_dir }}`"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Benchmark artifacts: `${{ steps.paths.outputs.benchmark_dir }}`"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          $compatibilityOutcome = "${{ steps.compatibility.outcome }}"
+          $benchmarkOutcome = "${{ steps.benchmark_run.outcome }}"
+          if ([string]::IsNullOrWhiteSpace($benchmarkOutcome)) {
+            $benchmarkOutcome = "skipped"
+          }
+
+          @(
+            "## ${{ matrix.os }}",
+            "",
+            "- Compatibility stage: $compatibilityOutcome",
+            "- Benchmark stage: $benchmarkOutcome",
+            "- Compatibility artifacts: ${{ steps.paths.outputs.compat_dir }}",
+            "- Benchmark artifacts: ${{ steps.paths.outputs.benchmark_dir }}",
+            ""
+          ) | Add-Content -Path $env:GITHUB_STEP_SUMMARY
 
           $compatReport = Join-Path "${{ steps.paths.outputs.compat_dir }}" "compatibility-report.md"
           if (Test-Path $compatReport) {
@@ -206,12 +214,17 @@ jobs:
         if: always()
         run: |
           $summaryPath = Join-Path "${{ steps.aggregate.outputs.aggregate_dir }}" "latest-manual-run-summary.md"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "# Git Cross-OS Benchmark Summary"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Trigger: `${{ github.event_name }}`"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- README refresh: `$(if ("${{ github.event_name }}" -eq "workflow_dispatch") { "updated in workspace artifact" } else { "skipped" })`"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Aggregate artifacts: `${{ steps.aggregate.outputs.aggregate_dir }}`"
-          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          $eventName = "${{ github.event_name }}"
+          $readmeRefreshStatus = if ($eventName -eq "workflow_dispatch") { "updated in workspace artifact" } else { "skipped" }
+
+          @(
+            "# Git Cross-OS Benchmark Summary",
+            "",
+            "- Trigger: $eventName",
+            "- README refresh: $readmeRefreshStatus",
+            "- Aggregate artifacts: ${{ steps.aggregate.outputs.aggregate_dir }}",
+            ""
+          ) | Add-Content -Path $env:GITHUB_STEP_SUMMARY
 
           if (Test-Path $summaryPath) {
             Get-Content $summaryPath | Add-Content -Path $env:GITHUB_STEP_SUMMARY
