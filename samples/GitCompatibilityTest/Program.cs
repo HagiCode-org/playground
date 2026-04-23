@@ -1,219 +1,527 @@
 using LibGit2Sharp;
-using System.Runtime.InteropServices;
 
 namespace GitCompatibilityTest;
 
-class Program
+internal static class Program
 {
-    static async Task Main(string[] args)
+    private static readonly StatusOptions SharedStatusOptions = new()
     {
-        Console.WriteLine("========================================");
-        Console.WriteLine("LibGit2Sharp ARM64 macOS Compatibility Test");
-        Console.WriteLine("========================================");
+        IncludeUntracked = true,
+        RecurseUntrackedDirs = true,
+        DetectRenamesInIndex = true,
+        DetectRenamesInWorkDir = true
+    };
+
+    public static async Task<int> Main(string[] args)
+    {
+        var options = CliOptions.Parse(args);
+        if (options.ShowHelp)
+        {
+            PrintHelp();
+            return (int)ValidationExitCode.Success;
+        }
+
+        if (!options.IsValid(out var validationError))
+        {
+            Console.Error.WriteLine(validationError);
+            Console.Error.WriteLine();
+            PrintHelp();
+            return (int)ValidationExitCode.InvalidArguments;
+        }
+
+        var outputDirectory = ResolveOutputDirectory(options.OutputDirectory, options.Mode);
+        Directory.CreateDirectory(outputDirectory);
+
+        var startedAtUtc = DateTimeOffset.UtcNow;
+        var platform = PlatformMetadata.Capture();
+
+        PrintHeader(options, outputDirectory, platform);
+
+        return options.Mode switch
+        {
+            ValidationMode.Compatibility => await RunCompatibilityAsync(options, outputDirectory, startedAtUtc, platform),
+            ValidationMode.Benchmark => await RunBenchmarkAsync(options, outputDirectory, startedAtUtc, platform),
+            ValidationMode.Summarize => await RunSummarizeAsync(options, outputDirectory),
+            _ => (int)ValidationExitCode.InvalidArguments
+        };
+    }
+
+    private static async Task<int> RunCompatibilityAsync(
+        CliOptions options,
+        string outputDirectory,
+        DateTimeOffset startedAtUtc,
+        PlatformMetadata platform)
+    {
+        var repositoryPath = ResolveRepositoryPath(options.RepositoryPath);
+        var sqliteFixture = SqliteFixtureFactory.Create(Path.Combine(outputDirectory, "sqlite-fixture", "compatibility.sqlite"));
+
+        Console.WriteLine($"Repository path: {repositoryPath}");
+        Console.WriteLine($"SQLite fixture: {sqliteFixture.DatabasePath}");
         Console.WriteLine();
 
-        // Output platform information
-        PrintPlatformInfo();
-
-        var results = new List<TestResult>();
-
-        try
+        var checks = new List<ValidationCheckResult>
         {
-            // Run all tests
-            results.Add(await TestLibraryLoad());
-            results.Add(await TestRepositoryInitialization());
-            results.Add(await TestBasicOperations());
-        }
-        catch (Exception ex)
-        {
-            LogError("Unhandled exception during test execution", ex);
-            Environment.Exit(1);
-        }
-
-        // Generate and display report
-        GenerateReport(results);
-
-        // Exit with appropriate code
-        var allPassed = results.All(r => r.Passed);
-        Environment.Exit(allPassed ? 0 : 1);
-    }
-
-    static void PrintPlatformInfo()
-    {
-        Console.WriteLine("Platform Information:");
-        Console.WriteLine($"  OS: {RuntimeInformation.OSDescription}");
-        Console.WriteLine($"  OS Architecture: {RuntimeInformation.OSArchitecture}");
-        Console.WriteLine($"  Process Architecture: {RuntimeInformation.ProcessArchitecture}");
-        Console.WriteLine($"  .NET Version: {Environment.Version}");
-        Console.WriteLine();
-    }
-
-    static async Task<TestResult> TestLibraryLoad()
-    {
-        Console.WriteLine("Test 1: Library Load Verification");
-        Console.WriteLine("----------------------------------------");
-
-        try
-        {
-            // Attempt to access LibGit2Sharp static properties to trigger library load
-            // GlobalSettings requires the native library to be loaded
-            var version = GlobalSettings.Version;
-
-            LogSuccess("LibGit2Sharp native library loaded successfully");
-            LogInfo($"  Version: {version}");
-
-            return new TestResult("Library Load", true);
-        }
-        catch (Exception ex)
-        {
-            LogError("Failed to load LibGit2Sharp native library", ex);
-            return new TestResult("Library Load", false, ex.Message);
-        }
-        finally
-        {
-            Console.WriteLine();
-        }
-    }
-
-    static async Task<TestResult> TestRepositoryInitialization()
-    {
-        Console.WriteLine("Test 2: Repository Initialization");
-        Console.WriteLine("----------------------------------------");
-
-        try
-        {
-            // Use parent directory which is the git repository root
-            // (current directory is the GitCompatibilityTest project directory)
-            var repoDir = Directory.GetParent(Directory.GetCurrentDirectory())?.FullName
-                ?? Directory.GetCurrentDirectory();
-            LogInfo($"  Testing repository at: {repoDir}");
-
-            using var repo = new Repository(repoDir);
-
-            LogSuccess("Repository object created successfully");
-            LogInfo($"  Repository is bare: {repo.Info.IsBare}");
-
-            return new TestResult("Repository Initialization", true);
-        }
-        catch (Exception ex)
-        {
-            LogError("Failed to initialize Repository", ex);
-            return new TestResult("Repository Initialization", false, ex.Message);
-        }
-        finally
-        {
-            Console.WriteLine();
-        }
-    }
-
-    static async Task<TestResult> TestBasicOperations()
-    {
-        Console.WriteLine("Test 3: Basic Repository Operations");
-        Console.WriteLine("----------------------------------------");
-
-        try
-        {
-            // Use parent directory which is the git repository root
-            var repoDir = Directory.GetParent(Directory.GetCurrentDirectory())?.FullName
-                ?? Directory.GetCurrentDirectory();
-            using var repo = new Repository(repoDir);
-
-            // Test status retrieval
-            var status = repo.RetrieveStatus();
-            LogInfo($"  Repository status retrieved");
-            LogInfo($"  Modified files: {status.Modified.Count()}");
-            LogInfo($"  Untracked files: {status.Untracked.Count()}");
-
-            // Test branch name retrieval
-            var head = repo.Head;
-            var branchName = head.FriendlyName;
-            LogInfo($"  Current branch: {branchName}");
-
-            // Test commit info
-            if (head.Tip != null)
+            RunCheck("library-load", "Library load", () =>
             {
-                LogInfo($"  Latest commit: {head.Tip.Id.ToString().Substring(0, 7)} - {head.Tip.MessageShort}");
+                var version = GlobalSettings.Version;
+                return new Dictionary<string, string>
+                {
+                    ["libgit2sharpVersion"] = version.ToString()
+                };
+            }),
+            RunCheck("repository-open", "Repository initialization", () =>
+            {
+                EnsureValidRepository(repositoryPath);
+                using var repository = new Repository(repositoryPath);
+                return new Dictionary<string, string>
+                {
+                    ["isBare"] = repository.Info.IsBare.ToString(),
+                    ["workingDirectory"] = repository.Info.WorkingDirectory ?? repositoryPath
+                };
+            }),
+            RunCheck("status-scan", "Repository status retrieval", () =>
+            {
+                using var repository = OpenRepository(repositoryPath);
+                var status = repository.RetrieveStatus(SharedStatusOptions);
+                return new Dictionary<string, string>
+                {
+                    ["statusEntryCount"] = status.Count().ToString(),
+                    ["modifiedCount"] = status.Modified.Count().ToString(),
+                    ["untrackedCount"] = status.Untracked.Count().ToString()
+                };
+            }),
+            RunCheck("branch-lookup", "Branch lookup", () =>
+            {
+                using var repository = OpenRepository(repositoryPath);
+                return new Dictionary<string, string>
+                {
+                    ["headDetached"] = repository.Info.IsHeadDetached.ToString(),
+                    ["branchName"] = repository.Head.FriendlyName ?? "HEAD"
+                };
+            }),
+            RunCheck("head-commit-lookup", "HEAD commit lookup", () =>
+            {
+                using var repository = OpenRepository(repositoryPath);
+                var tip = repository.Head.Tip ?? throw new InvalidOperationException("HEAD does not have a tip commit.");
+                return new Dictionary<string, string>
+                {
+                    ["commitSha"] = tip.Id.Sha,
+                    ["messageShort"] = tip.MessageShort
+                };
+            }),
+            RunCheck("sqlite-ef-query", "SQLite EF Core smoke query", () =>
+            {
+                return SqliteValidationService.RunEfSmokeCheck(sqliteFixture.DatabasePath);
+            }),
+            RunCheck("sqlite-linq2db-query", "SQLite linq2db smoke query", () =>
+            {
+                return SqliteValidationService.RunLinqToDbSmokeCheck(sqliteFixture.DatabasePath);
+            })
+        };
+
+        var result = new CompatibilityRunResult
+        {
+            SampleName = "GitCompatibilityTest",
+            Mode = ValidationMode.Compatibility.ToString().ToLowerInvariant(),
+            StartedAtUtc = startedAtUtc,
+            CompletedAtUtc = DateTimeOffset.UtcNow,
+            RepositoryPath = repositoryPath,
+            Platform = platform,
+            Checks = checks
+        };
+
+        ResultWriter.WriteCompatibilityArtifacts(outputDirectory, result);
+        Console.WriteLine(ResultWriter.BuildCompatibilityConsoleReport(result));
+
+        return result.AllPassed
+            ? (int)ValidationExitCode.Success
+            : (int)ValidationExitCode.CompatibilityFailed;
+    }
+
+    private static async Task<int> RunBenchmarkAsync(
+        CliOptions options,
+        string outputDirectory,
+        DateTimeOffset startedAtUtc,
+        PlatformMetadata platform)
+    {
+        var fixture = FixtureRepositoryFactory.Create(Path.Combine(outputDirectory, "fixture-repo"));
+        var sqliteFixture = SqliteFixtureFactory.Create(Path.Combine(outputDirectory, "sqlite-fixture", "benchmark.sqlite"));
+
+        Console.WriteLine($"Fixture repository: {fixture.RepositoryPath}");
+        Console.WriteLine($"SQLite fixture: {sqliteFixture.DatabasePath}");
+        Console.WriteLine($"Warmup iterations: {options.WarmupIterations}");
+        Console.WriteLine($"Measured iterations: {options.MeasuredIterations}");
+        Console.WriteLine();
+
+        using var statusRepository = new Repository(fixture.RepositoryPath);
+        using var branchRepository = new Repository(fixture.RepositoryPath);
+        using var headRepository = new Repository(fixture.RepositoryPath);
+
+        var scenarios = new[]
+        {
+            new BenchmarkScenarioDefinition(
+                "repository-open",
+                "Open a Repository instance using the compatibility-check path.",
+                () =>
+                {
+                    using var repository = new Repository(fixture.RepositoryPath);
+                    _ = repository.Info.WorkingDirectory;
+                    return ValueTask.CompletedTask;
+                }),
+            new BenchmarkScenarioDefinition(
+                "status-scan",
+                "Run Repository.RetrieveStatus with the same StatusOptions shape used by hagicode-core.",
+                () =>
+                {
+                    var status = statusRepository.RetrieveStatus(SharedStatusOptions);
+                    _ = status.Count();
+                    return ValueTask.CompletedTask;
+                }),
+            new BenchmarkScenarioDefinition(
+                "branch-lookup",
+                "Read Repository.Head.FriendlyName on the fixture repository.",
+                () =>
+                {
+                    _ = branchRepository.Head.FriendlyName;
+                    return ValueTask.CompletedTask;
+                }),
+            new BenchmarkScenarioDefinition(
+                "head-commit-lookup",
+                "Read Repository.Head.Tip metadata on the fixture repository.",
+                () =>
+                {
+                    _ = headRepository.Head.Tip?.Id.Sha;
+                    return ValueTask.CompletedTask;
+                }),
+            new BenchmarkScenarioDefinition(
+                "sqlite-ef-query",
+                "Open a SQLite EF Core DbContext and read the latest qualifying row.",
+                () =>
+                {
+                    SqliteValidationService.RunEfBenchmarkQuery(sqliteFixture.DatabasePath);
+                    return ValueTask.CompletedTask;
+                }),
+            new BenchmarkScenarioDefinition(
+                "sqlite-linq2db-query",
+                "Open a SQLite linq2db DataConnection and read the latest qualifying row.",
+                () =>
+                {
+                    SqliteValidationService.RunLinqToDbBenchmarkQuery(sqliteFixture.DatabasePath);
+                    return ValueTask.CompletedTask;
+                })
+        };
+
+        var runner = new BenchmarkScenarioRunner(options.WarmupIterations, options.MeasuredIterations);
+        var scenarioResults = await runner.RunAsync(scenarios);
+
+        var benchmarkResult = new BenchmarkRunResult
+        {
+            SampleName = "GitCompatibilityTest",
+            Mode = ValidationMode.Benchmark.ToString().ToLowerInvariant(),
+            StartedAtUtc = startedAtUtc,
+            CompletedAtUtc = DateTimeOffset.UtcNow,
+            Platform = platform,
+            Fixture = fixture,
+            SqliteFixture = sqliteFixture,
+            WarmupIterations = options.WarmupIterations,
+            MeasuredIterations = options.MeasuredIterations,
+            StatusOptions = ResultWriter.DescribeStatusOptions(SharedStatusOptions),
+            Scenarios = scenarioResults
+        };
+
+        benchmarkResult.ReadmeRefresh = ResultWriter.WriteBenchmarkArtifacts(
+            outputDirectory,
+            benchmarkResult,
+            options.RefreshReadme,
+            options.ReadmePath);
+
+        Console.WriteLine(ResultWriter.BuildBenchmarkConsoleReport(benchmarkResult, outputDirectory));
+
+        return benchmarkResult.AllPassed
+            ? (int)ValidationExitCode.Success
+            : (int)ValidationExitCode.BenchmarkFailed;
+    }
+
+    private static async Task<int> RunSummarizeAsync(CliOptions options, string outputDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(options.ResultsRoot))
+        {
+            Console.Error.WriteLine("`--results-root` is required when `--mode summarize` is used.");
+            return (int)ValidationExitCode.InvalidArguments;
+        }
+
+        var resultsRoot = Path.GetFullPath(options.ResultsRoot);
+        var benchmarkResults = ResultWriter.LoadBenchmarkResults(resultsRoot);
+        if (benchmarkResults.Count == 0)
+        {
+            Console.Error.WriteLine($"No benchmark result files were found under `{resultsRoot}`.");
+            return (int)ValidationExitCode.InvalidArguments;
+        }
+
+        var summaryMarkdown = ResultWriter.BuildAggregateMarkdownSummary(benchmarkResults, resultsRoot);
+        var summaryPath = Path.Combine(outputDirectory, "latest-manual-run-summary.md");
+        await File.WriteAllTextAsync(summaryPath, summaryMarkdown);
+
+        ReadmeRefreshInfo? refreshInfo = null;
+        if (!string.IsNullOrWhiteSpace(options.ReadmePath))
+        {
+            refreshInfo = ResultWriter.UpdateReadmeSummary(options.ReadmePath, summaryMarkdown);
+            var refreshedReadmePath = Path.Combine(outputDirectory, "README.md");
+            File.Copy(Path.GetFullPath(options.ReadmePath), refreshedReadmePath, overwrite: true);
+        }
+
+        Console.WriteLine(ResultWriter.BuildAggregateConsoleReport(benchmarkResults, summaryPath, refreshInfo));
+        return (int)ValidationExitCode.Success;
+    }
+
+    private static ValidationCheckResult RunCheck(
+        string id,
+        string displayName,
+        Func<Dictionary<string, string>> action)
+    {
+        try
+        {
+            return new ValidationCheckResult
+            {
+                Id = id,
+                DisplayName = displayName,
+                Passed = true,
+                Details = action()
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ValidationCheckResult
+            {
+                Id = id,
+                DisplayName = displayName,
+                Passed = false,
+                Failure = FailureDetails.FromException(ex)
+            };
+        }
+    }
+
+    private static Repository OpenRepository(string repositoryPath)
+    {
+        EnsureValidRepository(repositoryPath);
+        return new Repository(repositoryPath);
+    }
+
+    private static void EnsureValidRepository(string repositoryPath)
+    {
+        if (!Repository.IsValid(repositoryPath))
+        {
+            throw new DirectoryNotFoundException($"`{repositoryPath}` is not a valid Git repository.");
+        }
+    }
+
+    private static string ResolveRepositoryPath(string? repositoryPath)
+    {
+        if (!string.IsNullOrWhiteSpace(repositoryPath))
+        {
+            return Path.GetFullPath(repositoryPath);
+        }
+
+        var current = new DirectoryInfo(Directory.GetCurrentDirectory());
+        while (current is not null)
+        {
+            var gitMetadata = Path.Combine(current.FullName, ".git");
+            if (Directory.Exists(gitMetadata) || File.Exists(gitMetadata))
+            {
+                return current.FullName;
             }
 
-            LogSuccess("Basic repository operations completed successfully");
-            return new TestResult("Basic Operations", true);
+            current = current.Parent;
         }
-        catch (Exception ex)
-        {
-            LogError("Failed to execute basic repository operations", ex);
-            return new TestResult("Basic Operations", false, ex.Message);
-        }
-        finally
-        {
-            Console.WriteLine();
-        }
+
+        return Directory.GetCurrentDirectory();
     }
 
-    static void GenerateReport(List<TestResult> results)
+    private static string ResolveOutputDirectory(string? requestedPath, ValidationMode mode)
     {
-        Console.WriteLine("========================================");
-        Console.WriteLine("Compatibility Test Report");
-        Console.WriteLine("========================================");
-        Console.WriteLine();
-
-        var passed = results.Count(r => r.Passed);
-        var total = results.Count;
-        var allPassed = passed == total;
-
-        Console.WriteLine($"Overall Status: {(allPassed ? "PASS" : "FAIL")}");
-        Console.WriteLine($"Tests Passed: {passed}/{total}");
-        Console.WriteLine();
-
-        foreach (var result in results)
+        if (!string.IsNullOrWhiteSpace(requestedPath))
         {
-            var statusIcon = result.Passed ? "✓" : "✗";
-            var statusText = result.Passed ? "PASS" : "FAIL";
-            Console.WriteLine($"  [{statusIcon}] {result.TestName}: {statusText}");
-            if (!result.Passed && result.ErrorMessage != null)
+            return Path.GetFullPath(requestedPath);
+        }
+
+        var timestamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmss");
+        return Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "artifacts", $"{mode.ToString().ToLowerInvariant()}-{timestamp}"));
+    }
+
+    private static void PrintHeader(CliOptions options, string outputDirectory, PlatformMetadata platform)
+    {
+        Console.WriteLine("================================================");
+        Console.WriteLine("GitCompatibilityTest");
+        Console.WriteLine("================================================");
+        Console.WriteLine($"Mode: {options.Mode.ToString().ToLowerInvariant()}");
+        Console.WriteLine($"Output directory: {outputDirectory}");
+        Console.WriteLine($"OS: {platform.OsDescription}");
+        Console.WriteLine($"OS architecture: {platform.OsArchitecture}");
+        Console.WriteLine($"Process architecture: {platform.ProcessArchitecture}");
+        Console.WriteLine($".NET runtime: {platform.FrameworkDescription} / {platform.DotnetVersion}");
+        Console.WriteLine($"Hardware: {ResultWriter.BuildHardwareSummary(platform.Hardware)}");
+        if (!string.IsNullOrWhiteSpace(platform.GithubRunnerOs))
+        {
+            Console.WriteLine($"GitHub runner: {platform.GithubRunnerOs} / {platform.GithubRunnerArch ?? "unknown"}");
+        }
+
+        Console.WriteLine();
+    }
+
+    private static void PrintHelp()
+    {
+        Console.WriteLine("GitCompatibilityTest CLI");
+        Console.WriteLine();
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  dotnet run -- --mode compatibility [--repository <path>] [--output <path>]");
+        Console.WriteLine("  dotnet run -- --mode benchmark [--output <path>] [--warmup <count>] [--iterations <count>] [--refresh-readme --readme <path>]");
+        Console.WriteLine("  dotnet run -- --mode summarize --results-root <path> [--output <path>] [--readme <path>]");
+        Console.WriteLine();
+        Console.WriteLine("Options:");
+        Console.WriteLine("  --mode <compatibility|benchmark|summarize>   Execution mode.");
+        Console.WriteLine("  --repository <path>                          Repository path for compatibility checks.");
+        Console.WriteLine("  --output <path>                              Directory where artifacts are written.");
+        Console.WriteLine("  --warmup <count>                             Warmup iteration count for benchmark mode.");
+        Console.WriteLine("  --iterations <count>                         Measured iteration count for benchmark mode.");
+        Console.WriteLine("  --results-root <path>                        Root directory containing benchmark-results.json files.");
+        Console.WriteLine("  --refresh-readme                             Update the root README summary section after benchmark mode.");
+        Console.WriteLine("  --readme <path>                              README file to update when refresh is enabled.");
+        Console.WriteLine("  --help                                       Print this message.");
+    }
+
+    private sealed record CliOptions(
+        ValidationMode Mode,
+        string? RepositoryPath,
+        string? OutputDirectory,
+        int WarmupIterations,
+        int MeasuredIterations,
+        bool RefreshReadme,
+        string? ReadmePath,
+        string? ResultsRoot,
+        bool ShowHelp)
+    {
+        public static CliOptions Parse(IReadOnlyList<string> args)
+        {
+            var mode = ValidationMode.Compatibility;
+            string? repositoryPath = null;
+            string? outputDirectory = null;
+            var warmupIterations = 2;
+            var measuredIterations = 8;
+            var refreshReadme = false;
+            string? readmePath = null;
+            string? resultsRoot = null;
+            var showHelp = false;
+
+            for (var i = 0; i < args.Count; i++)
             {
-                Console.WriteLine($"      Error: {result.ErrorMessage}");
+                var current = args[i];
+                switch (current)
+                {
+                    case "--mode":
+                        mode = ParseMode(ReadValue(args, ref i, current));
+                        break;
+                    case "--repository":
+                        repositoryPath = ReadValue(args, ref i, current);
+                        break;
+                    case "--output":
+                        outputDirectory = ReadValue(args, ref i, current);
+                        break;
+                    case "--warmup":
+                        warmupIterations = ParsePositiveInt(ReadValue(args, ref i, current), current);
+                        break;
+                    case "--iterations":
+                        measuredIterations = ParsePositiveInt(ReadValue(args, ref i, current), current);
+                        break;
+                    case "--refresh-readme":
+                        refreshReadme = true;
+                        break;
+                    case "--readme":
+                        readmePath = ReadValue(args, ref i, current);
+                        break;
+                    case "--results-root":
+                        resultsRoot = ReadValue(args, ref i, current);
+                        break;
+                    case "--help":
+                    case "-h":
+                        showHelp = true;
+                        break;
+                    default:
+                        throw new ArgumentException($"Unknown argument: {current}");
+                }
             }
+
+            return new CliOptions(
+                mode,
+                repositoryPath,
+                outputDirectory,
+                warmupIterations,
+                measuredIterations,
+                refreshReadme,
+                readmePath,
+                resultsRoot,
+                showHelp);
         }
 
-        Console.WriteLine();
-        Console.WriteLine("========================================");
-
-        if (allPassed)
+        public bool IsValid(out string validationError)
         {
-            LogSuccess("All tests passed! LibGit2Sharp is compatible with this platform.");
+            if (WarmupIterations < 0)
+            {
+                validationError = "`--warmup` must be zero or greater.";
+                return false;
+            }
+
+            if (MeasuredIterations <= 0)
+            {
+                validationError = "`--iterations` must be greater than zero.";
+                return false;
+            }
+
+            if (Mode == ValidationMode.Benchmark && RefreshReadme && string.IsNullOrWhiteSpace(ReadmePath))
+            {
+                validationError = "`--readme` is required when `--refresh-readme` is set.";
+                return false;
+            }
+
+            if (Mode == ValidationMode.Summarize && string.IsNullOrWhiteSpace(ResultsRoot))
+            {
+                validationError = "`--results-root` is required when `--mode summarize` is used.";
+                return false;
+            }
+
+            validationError = string.Empty;
+            return true;
         }
-        else
+
+        private static string ReadValue(IReadOnlyList<string> args, ref int index, string option)
         {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine("[FAIL] Some tests failed. LibGit2Sharp may not be fully compatible with this platform.");
-            Console.ResetColor();
+            if (index + 1 >= args.Count)
+            {
+                throw new ArgumentException($"Missing value for `{option}`.");
+            }
+
+            index++;
+            return args[index];
         }
-    }
 
-    static void LogSuccess(string message)
-    {
-        Console.ForegroundColor = ConsoleColor.Green;
-        Console.WriteLine($"[PASS] {message}");
-        Console.ResetColor();
-    }
-
-    static void LogInfo(string message)
-    {
-        Console.WriteLine($"[INFO] {message}");
-    }
-
-    static void LogError(string message, Exception ex)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"[FAIL] {message}");
-        Console.ResetColor();
-        Console.WriteLine($"  Exception Type: {ex.GetType().Name}");
-        Console.WriteLine($"  Message: {ex.Message}");
-        if (ex.StackTrace != null)
+        private static ValidationMode ParseMode(string value)
         {
-            Console.WriteLine($"  Stack Trace: {ex.StackTrace}");
+            return value.ToLowerInvariant() switch
+            {
+                "compatibility" => ValidationMode.Compatibility,
+                "benchmark" => ValidationMode.Benchmark,
+                "summarize" => ValidationMode.Summarize,
+                _ => throw new ArgumentException($"Unsupported mode `{value}`.")
+            };
+        }
+
+        private static int ParsePositiveInt(string value, string option)
+        {
+            if (!int.TryParse(value, out var parsed) || parsed < 0)
+            {
+                throw new ArgumentException($"`{option}` expects a non-negative integer.");
+            }
+
+            return parsed;
         }
     }
-
-    record TestResult(string TestName, bool Passed, string? ErrorMessage = null);
 }
