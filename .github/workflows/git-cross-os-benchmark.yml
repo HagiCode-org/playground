@@ -1,0 +1,226 @@
+name: Git Cross-OS Benchmark
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - "samples/GitCompatibilityTest/**"
+      - ".github/workflows/git-cross-os-benchmark.yml"
+      - ".github/workflows/test-arm-macos.yml"
+      - "README.md"
+  pull_request:
+    paths:
+      - "samples/GitCompatibilityTest/**"
+      - ".github/workflows/git-cross-os-benchmark.yml"
+      - ".github/workflows/test-arm-macos.yml"
+      - "README.md"
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    name: Benchmark on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - windows-latest
+          - macos-14
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Prepare paths
+        id: paths
+        run: |
+          $runRoot = Join-Path $env:RUNNER_TEMP "git-cross-os-benchmark/${{ matrix.os }}"
+          $compatDir = Join-Path $runRoot "compatibility"
+          $benchmarkDir = Join-Path $runRoot "benchmark"
+
+          New-Item -ItemType Directory -Force -Path $compatDir | Out-Null
+          New-Item -ItemType Directory -Force -Path $benchmarkDir | Out-Null
+
+          "run_root=$runRoot" >> $env:GITHUB_OUTPUT
+          "compat_dir=$compatDir" >> $env:GITHUB_OUTPUT
+          "benchmark_dir=$benchmarkDir" >> $env:GITHUB_OUTPUT
+
+      - name: Restore dependencies
+        working-directory: ./samples/GitCompatibilityTest
+        run: dotnet restore
+
+      - name: Build sample
+        working-directory: ./samples/GitCompatibilityTest
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Run compatibility checks
+        id: compatibility
+        continue-on-error: true
+        working-directory: ./samples/GitCompatibilityTest
+        run: |
+          $logPath = Join-Path "${{ steps.paths.outputs.compat_dir }}" "compatibility.log"
+          dotnet run --configuration Release --no-build -- `
+            --mode compatibility `
+            --repository $env:GITHUB_WORKSPACE `
+            --output "${{ steps.paths.outputs.compat_dir }}" 2>&1 `
+            | Tee-Object -FilePath $logPath
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Run benchmark scenarios
+        id: benchmark_run
+        if: steps.compatibility.outcome == 'success'
+        continue-on-error: true
+        working-directory: ./samples/GitCompatibilityTest
+        run: |
+          $logPath = Join-Path "${{ steps.paths.outputs.benchmark_dir }}" "benchmark.log"
+          dotnet run --configuration Release --no-build -- `
+            --mode benchmark `
+            --output "${{ steps.paths.outputs.benchmark_dir }}" `
+            --warmup 2 `
+            --iterations 8 2>&1 `
+            | Tee-Object -FilePath $logPath
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+      - name: Publish per-runner step summary
+        if: always()
+        run: |
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "## ${{ matrix.os }}"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Compatibility stage: `${{ steps.compatibility.outcome }}`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Benchmark stage: `${{ steps.benchmark_run.outcome || 'skipped' }}`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Compatibility artifacts: `${{ steps.paths.outputs.compat_dir }}`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Benchmark artifacts: `${{ steps.paths.outputs.benchmark_dir }}`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+
+          $compatReport = Join-Path "${{ steps.paths.outputs.compat_dir }}" "compatibility-report.md"
+          if (Test-Path $compatReport) {
+            Get-Content $compatReport | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          }
+
+          $benchmarkSummary = Join-Path "${{ steps.paths.outputs.benchmark_dir }}" "benchmark-summary.md"
+          if (Test-Path $benchmarkSummary) {
+            Get-Content $benchmarkSummary | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          }
+
+      - name: Upload runner artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-cross-os-benchmark-${{ matrix.os }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.paths.outputs.run_root }}
+          retention-days: 14
+
+      - name: Fail runner when validation did not pass
+        if: always()
+        run: |
+          if ("${{ steps.compatibility.outcome }}" -ne "success") {
+            throw "Compatibility checks failed on ${{ matrix.os }}."
+          }
+
+          if ("${{ steps.benchmark_run.outcome }}" -eq "failure") {
+            throw "Benchmark scenarios failed on ${{ matrix.os }}."
+          }
+
+  summary:
+    name: Aggregate benchmark summary
+    if: always()
+    needs:
+      - benchmark
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Download runner artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/git-cross-os-downloads
+          pattern: git-cross-os-benchmark-*
+
+      - name: Restore dependencies
+        working-directory: ./samples/GitCompatibilityTest
+        run: dotnet restore
+
+      - name: Build sample
+        working-directory: ./samples/GitCompatibilityTest
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Generate aggregate summary
+        id: aggregate
+        working-directory: ./samples/GitCompatibilityTest
+        run: |
+          $aggregateDir = Join-Path $env:RUNNER_TEMP "git-cross-os-aggregate"
+          New-Item -ItemType Directory -Force -Path $aggregateDir | Out-Null
+
+          $arguments = @(
+            "--mode", "summarize",
+            "--results-root", (Join-Path $env:RUNNER_TEMP "git-cross-os-downloads"),
+            "--output", $aggregateDir
+          )
+
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $arguments += @("--readme", (Join-Path $env:GITHUB_WORKSPACE "README.md"))
+          }
+
+          dotnet run --configuration Release --no-build -- @arguments
+
+          if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+          }
+
+          "aggregate_dir=$aggregateDir" >> $env:GITHUB_OUTPUT
+
+      - name: Publish workflow step summary
+        if: always()
+        run: |
+          $summaryPath = Join-Path "${{ steps.aggregate.outputs.aggregate_dir }}" "latest-manual-run-summary.md"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "# Git Cross-OS Benchmark Summary"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Trigger: `${{ github.event_name }}`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- README refresh: `$(if ("${{ github.event_name }}" -eq "workflow_dispatch") { "updated in workspace artifact" } else { "skipped" })`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- Aggregate artifacts: `${{ steps.aggregate.outputs.aggregate_dir }}`"
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ""
+
+          if (Test-Path $summaryPath) {
+            Get-Content $summaryPath | Add-Content -Path $env:GITHUB_STEP_SUMMARY
+          }
+
+      - name: Upload aggregate summary artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-cross-os-summary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.aggregate.outputs.aggregate_dir }}
+          retention-days: 14
