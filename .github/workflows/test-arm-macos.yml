@@ -1,4 +1,4 @@
-name: Test LibGit2Sharp on ARM64 macOS
+name: Git Compatibility Smoke on macOS ARM64
 
 on:
   push:
@@ -6,18 +6,19 @@ on:
       - main
       - master
     paths:
-      - 'samples/GitCompatibilityTest/**'
-      - '.github/workflows/test-arm-macos.yml'
+      - "samples/GitCompatibilityTest/**"
+      - ".github/workflows/test-arm-macos.yml"
   pull_request:
     paths:
-      - 'samples/GitCompatibilityTest/**'
-      - '.github/workflows/test-arm-macos.yml'
+      - "samples/GitCompatibilityTest/**"
+      - ".github/workflows/test-arm-macos.yml"
   workflow_dispatch:
 
 jobs:
   test-on-arm-macos:
-    name: Test Git Library Compatibility
-    runs-on: macos-latest
+    name: Shared compatibility entrypoint
+    runs-on: macos-14
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -26,10 +27,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
-
-      - name: Verify .NET installation
-        run: dotnet --info
+          dotnet-version: "8.0.x"
 
       - name: Restore dependencies
         working-directory: ./samples/GitCompatibilityTest
@@ -39,12 +37,30 @@ jobs:
         working-directory: ./samples/GitCompatibilityTest
         run: dotnet build --configuration Release --no-restore
 
-      - name: Run verification program
+      - name: Run compatibility-only validation
         working-directory: ./samples/GitCompatibilityTest
-        run: dotnet run --configuration Release --no-build
-
-      - name: Verify platform
         run: |
-          echo "Running on macOS"
-          arch
-          sw_vers
+          mkdir -p ./artifacts/test-arm-macos
+          dotnet run --configuration Release --no-build -- \
+            --mode compatibility \
+            --repository "$GITHUB_WORKSPACE" \
+            --output ./artifacts/test-arm-macos | tee ./artifacts/test-arm-macos/compatibility.log
+
+      - name: Upload smoke artifacts
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: git-compatibility-smoke-macos-14-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ./samples/GitCompatibilityTest/artifacts/test-arm-macos
+          retention-days: 14
+
+      - name: Publish smoke summary
+        if: ${{ always() }}
+        run: |
+          echo "## macOS ARM64 compatibility smoke" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Runner: \`macos-14\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Shared entrypoint: \`dotnet run -- --mode compatibility\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Artifact directory: \`samples/GitCompatibilityTest/artifacts/test-arm-macos\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          cat ./samples/GitCompatibilityTest/artifacts/test-arm-macos/compatibility-report.md >> "$GITHUB_STEP_SUMMARY"
