@@ -1,6 +1,11 @@
 schemaVersion: 1
 type: coderef
-title: hagiplayground
+title: playground
 docsRoot: docs
 reposRoot: repos
+docs:
+  - title: "Slash Command Recognition - 实现指南"
+    path: docs/slash-command-recognition-codex-implementation-guide.md
+  - title: "Slash Command Recognition - 可用本地示例盘点"
+    path: docs/slash-command-recognition-available-local-examples.md
 ...
